@@ -2,7 +2,6 @@ package com.sakurain.gpuscheduler.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.sakurain.gpuscheduler.entity.Resource;
-import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
@@ -11,7 +10,6 @@ import java.util.List;
 /**
  * 资源Mapper接口
  */
-@Mapper
 public interface ResourceMapper extends BaseMapper<Resource> {
 
     /**
@@ -35,14 +33,5 @@ public interface ResourceMapper extends BaseMapper<Resource> {
     /**
      * 根据权限ID列表查询关联的资源列表
      */
-    @Select("<script>" +
-            "SELECT DISTINCT r.* FROM resource r " +
-            "INNER JOIN permission p ON r.id = p.resource_id " +
-            "WHERE p.id IN " +
-            "<foreach collection='permissionIds' item='id' open='(' separator=',' close=')'>" +
-            "#{id}" +
-            "</foreach>" +
-            " AND r.status = 1 ORDER BY r.sort_order" +
-            "</script>")
     List<Resource> selectByPermissionIds(@Param("permissionIds") List<Long> permissionIds);
 }

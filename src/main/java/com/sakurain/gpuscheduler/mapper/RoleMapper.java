@@ -2,7 +2,6 @@ package com.sakurain.gpuscheduler.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.sakurain.gpuscheduler.entity.Role;
-import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
@@ -11,7 +10,6 @@ import java.util.List;
 /**
  * 角色Mapper接口
  */
-@Mapper
 public interface RoleMapper extends BaseMapper<Role> {
 
     /**

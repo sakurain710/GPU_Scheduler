@@ -9,7 +9,6 @@ import java.util.List;
 /**
  * 用户-角色关联Mapper接口
  */
-@Mapper
 public interface UserRoleMapper extends BaseMapper<UserRole> {
 
     /**
@@ -34,12 +33,6 @@ public interface UserRoleMapper extends BaseMapper<UserRole> {
     /**
      * 批量插入用户-角色关联
      */
-    @Insert("<script>" +
-            "INSERT INTO user_role (user_id, role_id, expires_at, granted_by) VALUES " +
-            "<foreach collection='list' item='item' separator=','>" +
-            "(#{item.userId}, #{item.roleId}, #{item.expiresAt}, #{item.grantedBy})" +
-            "</foreach>" +
-            "</script>")
     int batchInsert(@Param("list") List<UserRole> list);
 
     /**

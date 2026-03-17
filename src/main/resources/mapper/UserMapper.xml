@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.sakurain.gpuscheduler.mapper.UserMapper">
+
+    <select id="selectPageWithFilter" resultType="com.sakurain.gpuscheduler.entity.User">
+        SELECT u.* FROM user u
+        WHERE u.deleted_at IS NULL
+        <if test="username != null and username != ''">
+            AND u.username LIKE CONCAT('%', #{username}, '%')
+        </if>
+        <if test="email != null and email != ''">
+            AND u.email LIKE CONCAT('%', #{email}, '%')
+        </if>
+        <if test="status != null">
+            AND u.status = #{status}
+        </if>
+        ORDER BY u.created_at DESC
+    </select>
+
+</mapper>

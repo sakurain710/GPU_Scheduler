@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.sakurain.gpuscheduler.mapper.ResourceMapper">
+
+    <select id="selectByPermissionIds" resultType="com.sakurain.gpuscheduler.entity.Resource">
+        SELECT DISTINCT r.* FROM resource r
+        INNER JOIN permission p ON r.id = p.resource_id
+        WHERE p.id IN
+        <foreach collection="permissionIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        AND r.status = 1
+        ORDER BY r.sort_order
+    </select>
+
+</mapper>

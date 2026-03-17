@@ -9,7 +9,6 @@ import java.util.List;
 /**
  * 角色-权限关联Mapper接口
  */
-@Mapper
 public interface RolePermissionMapper extends BaseMapper<RolePermission> {
 
     /**
@@ -27,12 +26,6 @@ public interface RolePermissionMapper extends BaseMapper<RolePermission> {
     /**
      * 批量插入角色-权限关联
      */
-    @Insert("<script>" +
-            "INSERT INTO role_permission (role_id, permission_id, granted_by) VALUES " +
-            "<foreach collection='list' item='item' separator=','>" +
-            "(#{item.roleId}, #{item.permissionId}, #{item.grantedBy})" +
-            "</foreach>" +
-            "</script>")
     int batchInsert(@Param("list") List<RolePermission> list);
 
     /**

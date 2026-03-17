@@ -2,7 +2,6 @@ package com.sakurain.gpuscheduler.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.sakurain.gpuscheduler.entity.Permission;
-import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
@@ -11,7 +10,6 @@ import java.util.List;
 /**
  * 权限Mapper接口
  */
-@Mapper
 public interface PermissionMapper extends BaseMapper<Permission> {
 
     /**
@@ -31,15 +29,6 @@ public interface PermissionMapper extends BaseMapper<Permission> {
     /**
      * 根据角色ID列表查询所有权限（去重）
      */
-    @Select("<script>" +
-            "SELECT DISTINCT p.* FROM permission p " +
-            "INNER JOIN role_permission rp ON p.id = rp.permission_id " +
-            "WHERE rp.role_id IN " +
-            "<foreach collection='roleIds' item='id' open='(' separator=',' close=')'>" +
-            "#{id}" +
-            "</foreach>" +
-            " AND p.status = 1" +
-            "</script>")
     List<Permission> selectByRoleIds(@Param("roleIds") List<Long> roleIds);
 
     /**
