@@ -114,7 +114,7 @@ public class User {
     /**
      * 软删除时间戳
      */
-    @TableLogic
+    @TableLogic(value = "null", delval = "now()")
     @TableField("deleted_at")
     private LocalDateTime deletedAt;
 }
