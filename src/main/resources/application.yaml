@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: gpu-scheduler
+
+  # 数据库基础配置
+  datasource:
+    # 指定 Druid 数据源类型
+    type: com.alibaba.druid.pool.DruidDataSource
+    # Druid 驱动类（适配 MySQL 8.x，若用其他数据库需调整）
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: "jdbc:mysql://192.168.134.128:3306/rbac_test_db?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai"
+    username: lin
+    password: "N3w$tr0ngP@ss!"
