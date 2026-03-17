@@ -19,3 +19,12 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
     log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+# JWT 配置
+jwt:
+  secret-key: ${JWT_SECRET_KEY:your-256-bit-secret-key-for-jwt-signing-must-be-at-least-32-characters-long}
+  access-token-expiration: 86400000      # 24 小时（毫秒）
+  refresh-token-expiration: 604800000    # 7 天（毫秒）
+  issuer: gpu-scheduler
+  header-name: Authorization
+  token-prefix: "Bearer "
