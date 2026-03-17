@@ -19,6 +19,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  * Spring Security 配置类
  * 配置认证、授权、密码编码器、JWT 过滤器等
  *
+ * 过滤器执行顺序：IdempotencyFilter → RateLimitFilter → JwtAuthenticationFilter → ...
+ *
  * 注意：不需要手动配置 AuthenticationProvider，Spring Security 会自动检测
  * UserDetailsService 和 PasswordEncoder bean，并自动创建 DaoAuthenticationProvider
  */
@@ -29,12 +31,18 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
+    private final RateLimitFilter rateLimitFilter;
+    private final IdempotencyFilter idempotencyFilter;
 
     @Autowired
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
-                          JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint) {
+                          JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint,
+                          RateLimitFilter rateLimitFilter,
+                          IdempotencyFilter idempotencyFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.jwtAuthenticationEntryPoint = jwtAuthenticationEntryPoint;
+        this.rateLimitFilter = rateLimitFilter;
+        this.idempotencyFilter = idempotencyFilter;
     }
 
     /**
@@ -78,7 +86,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 公开接口（不需要认证）
                         .requestMatchers(
-                                "/api/auth/**",           // 认证相关接口
+                                "/api/auth/**",           // 认证相关接口（登录、刷新、登出）
                                 "/api/public/**",         // 公开接口
                                 "/error",                 // 错误页面
                                 "/actuator/health"        // 健康检查
@@ -88,8 +96,10 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
 
-                // 添加 JWT 认证过滤器（在 UsernamePasswordAuthenticationFilter 之前）
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                // 添加过滤器（执行顺序：Idempotency → RateLimit → JWT）
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(rateLimitFilter, JwtAuthenticationFilter.class)
+                .addFilterBefore(idempotencyFilter, RateLimitFilter.class);
 
         return http.build();
     }

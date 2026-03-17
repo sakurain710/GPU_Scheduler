@@ -1,6 +1,7 @@
 package com.sakurain.gpuscheduler.security;
 
 import com.sakurain.gpuscheduler.config.JwtConfig;
+import com.sakurain.gpuscheduler.service.TokenBlacklistService;
 import com.sakurain.gpuscheduler.util.JwtUtil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -30,12 +31,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtUtil jwtUtil;
     private final JwtConfig jwtConfig;
     private final CustomUserDetailsService userDetailsService;
+    private final TokenBlacklistService tokenBlacklistService;
 
     @Autowired
-    public JwtAuthenticationFilter(JwtUtil jwtUtil, JwtConfig jwtConfig, CustomUserDetailsService userDetailsService) {
+    public JwtAuthenticationFilter(JwtUtil jwtUtil, JwtConfig jwtConfig,
+                                   CustomUserDetailsService userDetailsService,
+                                   TokenBlacklistService tokenBlacklistService) {
         this.jwtUtil = jwtUtil;
         this.jwtConfig = jwtConfig;
         this.userDetailsService = userDetailsService;
+        this.tokenBlacklistService = tokenBlacklistService;
     }
 
     @Override
@@ -48,6 +53,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             // 验证 token 是否有效
             if (StringUtils.hasText(jwt) && jwtUtil.validateToken(jwt)) {
+                // 检查令牌是否已被吊销（加入黑名单）
+                if (tokenBlacklistService.isBlacklisted(jwt)) {
+                    log.warn("令牌已被吊销，拒绝访问");
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
                 // 从 token 中获取用户ID
                 Long userId = jwtUtil.getUserIdFromToken(jwt);
 

@@ -37,6 +37,19 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 处理请求频率超限异常
+     */
+    @ExceptionHandler(RateLimitException.class)
+    @ResponseStatus(HttpStatus.TOO_MANY_REQUESTS)
+    public Result<Void> handleRateLimitException(RateLimitException ex) {
+        log.warn("请求频率超限: {}", ex.getMessage());
+        return Result.<Void>builder()
+                .code(429)
+                .message(ex.getMessage())
+                .build();
+    }
+
+    /**
      * 处理 Spring Security 认证异常
      */
     @ExceptionHandler(AuthenticationException.class)

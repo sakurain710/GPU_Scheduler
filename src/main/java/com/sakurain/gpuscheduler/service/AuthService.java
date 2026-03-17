@@ -8,7 +8,7 @@ import com.sakurain.gpuscheduler.entity.User;
 import com.sakurain.gpuscheduler.exception.InvalidTokenException;
 import com.sakurain.gpuscheduler.exception.ResourceNotFoundException;
 import com.sakurain.gpuscheduler.exception.UserDisabledException;
-import com.sakurain.gpuscheduler.mapper.RoleMapper;
+import com.sakurain.gpuscheduler.service.TokenBlacklistService;import com.sakurain.gpuscheduler.mapper.RoleMapper;
 import com.sakurain.gpuscheduler.mapper.UserMapper;
 import com.sakurain.gpuscheduler.security.CustomUserDetails;
 import com.sakurain.gpuscheduler.util.JwtUtil;
@@ -20,6 +20,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -35,16 +36,19 @@ public class AuthService {
     private final JwtUtil jwtUtil;
     private final UserMapper userMapper;
     private final RoleMapper roleMapper;
+    private final TokenBlacklistService tokenBlacklistService;
 
     @Autowired
     public AuthService(AuthenticationManager authenticationManager,
                        JwtUtil jwtUtil,
                        UserMapper userMapper,
-                       RoleMapper roleMapper) {
+                       RoleMapper roleMapper,
+                       TokenBlacklistService tokenBlacklistService) {
         this.authenticationManager = authenticationManager;
         this.jwtUtil = jwtUtil;
         this.userMapper = userMapper;
         this.roleMapper = roleMapper;
+        this.tokenBlacklistService = tokenBlacklistService;
     }
 
     /**
@@ -105,6 +109,12 @@ public class AuthService {
                 throw new InvalidTokenException("无效的刷新令牌");
             }
 
+            // 检查刷新令牌是否已被吊销
+            if (tokenBlacklistService.isBlacklisted(refreshToken)) {
+                log.warn("令牌刷新失败 - 刷新令牌已被吊销");
+                throw new InvalidTokenException("刷新令牌已被吊销");
+            }
+
             // 从 token 中获取用户信息
             Long userId = jwtUtil.getUserIdFromToken(refreshToken);
             String username = jwtUtil.getUsernameFromToken(refreshToken);
@@ -147,6 +157,30 @@ public class AuthService {
             log.error("令牌刷新失败 - 系统异常", ex);
             throw new InvalidTokenException("令牌刷新失败", ex);
         }
+    }
+
+    /**
+     * 用户登出
+     * 将访问令牌和刷新令牌加入黑名单，并清空 SecurityContext
+     *
+     * @param accessToken  访问令牌
+     * @param refreshToken 刷新令牌（可选）
+     */
+    public void logout(String accessToken, String refreshToken) {
+        if (StringUtils.hasText(accessToken) && jwtUtil.validateToken(accessToken)) {
+            Long userId = jwtUtil.getUserIdFromToken(accessToken);
+            log.info("用户登出: userId={}", userId);
+            tokenBlacklistService.blacklistToken(accessToken,
+                    jwtUtil.getExpirationDateFromToken(accessToken));
+        }
+
+        if (StringUtils.hasText(refreshToken) && jwtUtil.validateToken(refreshToken)) {
+            tokenBlacklistService.blacklistToken(refreshToken,
+                    jwtUtil.getExpirationDateFromToken(refreshToken));
+        }
+
+        SecurityContextHolder.clearContext();
+        log.info("用户登出成功，令牌已加入黑名单");
     }
 
     /**
