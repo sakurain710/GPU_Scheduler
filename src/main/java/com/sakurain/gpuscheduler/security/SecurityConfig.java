@@ -4,8 +4,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.AuthenticationProvider;
-import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -20,21 +18,21 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 /**
  * Spring Security 配置类
  * 配置认证、授权、密码编码器、JWT 过滤器等
+ *
+ * 注意：不需要手动配置 AuthenticationProvider，Spring Security 会自动检测
+ * UserDetailsService 和 PasswordEncoder bean，并自动创建 DaoAuthenticationProvider
  */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
 public class SecurityConfig {
 
-    private final CustomUserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
 
     @Autowired
-    public SecurityConfig(CustomUserDetailsService userDetailsService,
-                          JwtAuthenticationFilter jwtAuthenticationFilter,
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
                           JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint) {
-        this.userDetailsService = userDetailsService;
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.jwtAuthenticationEntryPoint = jwtAuthenticationEntryPoint;
     }
@@ -42,21 +40,11 @@ public class SecurityConfig {
     /**
      * 配置密码编码器
      * 使用 BCrypt 加密算法
+     * Spring Security 会自动检测此 bean 并用于认证
      */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
-    }
-
-    /**
-     * 配置认证提供者
-     * 使用自定义的 UserDetailsService 和密码编码器
-     */
-    @Bean
-    public AuthenticationProvider authenticationProvider(PasswordEncoder passwordEncoder) {
-        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider(passwordEncoder);
-        authProvider.setUserDetailsService(userDetailsService);
-        return authProvider;
     }
 
     /**
@@ -99,9 +87,6 @@ public class SecurityConfig {
                         // 其他所有请求都需要认证
                         .anyRequest().authenticated()
                 )
-
-                // 配置认证提供者
-                .authenticationProvider(authenticationProvider(passwordEncoder()))
 
                 // 添加 JWT 认证过滤器（在 UsernamePasswordAuthenticationFilter 之前）
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
