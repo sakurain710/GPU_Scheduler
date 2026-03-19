@@ -94,9 +94,7 @@ CREATE TABLE `role` (
   KEY `idx_role_parent` (`parent_role_id`),
   KEY `idx_role_created_by` (`created_by`),
   CONSTRAINT `fk_role_parent`
-      FOREIGN KEY (`parent_role_id`) REFERENCES `role` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT `fk_role_created_by`
-      FOREIGN KEY (`created_by`) REFERENCES `user` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+      FOREIGN KEY (`parent_role_id`) REFERENCES `role` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Roles — named permission bundles with optional hierarchy';
 
@@ -117,9 +115,7 @@ CREATE TABLE `role_permission` (
   CONSTRAINT `fk_rp_role`
     FOREIGN KEY (`role_id`)       REFERENCES `role`       (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `fk_rp_permission`
-    FOREIGN KEY (`permission_id`) REFERENCES `permission` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT `fk_rp_granted_by`
-    FOREIGN KEY (`granted_by`) REFERENCES `user` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+    FOREIGN KEY (`permission_id`) REFERENCES `permission` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Role–Permission assignment (many-to-many)';
 
@@ -181,6 +177,15 @@ CREATE TABLE `user_role` (
     FOREIGN KEY (`granted_by`) REFERENCES `user` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='User–Role assignment (many-to-many, supports expiry)';
+
+
+ALTER TABLE `role`
+    ADD CONSTRAINT `fk_role_created_by`
+        FOREIGN KEY (`created_by`) REFERENCES `user` (`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE `role_permission`
+    ADD CONSTRAINT `fk_rp_granted_by`
+        FOREIGN KEY (`granted_by`) REFERENCES `user` (`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 
 CREATE OR REPLACE VIEW `v_active_user_role` AS
