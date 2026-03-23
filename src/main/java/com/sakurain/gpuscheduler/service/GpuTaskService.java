@@ -25,15 +25,18 @@ public class GpuTaskService {
     private final GpuTaskLogMapper taskLogMapper;
     private final TaskStateMachine stateMachine;
     private final TaskPriorityQueue priorityQueue;
+    private final com.sakurain.gpuscheduler.scheduler.TaskAgingScheduler agingScheduler;
 
     public GpuTaskService(GpuTaskMapper taskMapper,
                           GpuTaskLogMapper taskLogMapper,
                           TaskStateMachine stateMachine,
-                          TaskPriorityQueue priorityQueue) {
+                          TaskPriorityQueue priorityQueue,
+                          com.sakurain.gpuscheduler.scheduler.TaskAgingScheduler agingScheduler) {
         this.taskMapper = taskMapper;
         this.taskLogMapper = taskLogMapper;
         this.stateMachine = stateMachine;
         this.priorityQueue = priorityQueue;
+        this.agingScheduler = agingScheduler;
     }
 
     /**
@@ -97,7 +100,9 @@ public class GpuTaskService {
 
         // 联动Redis队列
         if (target == TaskStatus.QUEUED) {
-            priorityQueue.enqueue(taskId, task.getBasePriority());
+            // 使用有效优先级（包含老化加成）入队
+            double effectivePriority = agingScheduler.calculateEffectivePriority(task);
+            priorityQueue.enqueue(taskId, effectivePriority);
         } else if (from == TaskStatus.QUEUED) {
             // 从QUEUED转出时，移除队列
             priorityQueue.remove(taskId);

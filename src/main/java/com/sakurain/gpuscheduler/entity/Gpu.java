@@ -29,7 +29,7 @@ public class Gpu {
     private String name;
 
     /**
-     * 制造商（例如 NVIDIA / AMD）
+     * 制造商（例如 NVIDIA / AMD / 华为昇腾Ascend）
      */
     @TableField("manufacturer")
     private String manufacturer;

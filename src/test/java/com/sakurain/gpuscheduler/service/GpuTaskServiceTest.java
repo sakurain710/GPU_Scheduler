@@ -9,6 +9,7 @@ import com.sakurain.gpuscheduler.exception.InvalidTaskStateException;
 import com.sakurain.gpuscheduler.exception.ResourceNotFoundException;
 import com.sakurain.gpuscheduler.mapper.GpuTaskLogMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
+import com.sakurain.gpuscheduler.scheduler.TaskAgingScheduler;
 import com.sakurain.gpuscheduler.scheduler.TaskPriorityQueue;
 import com.sakurain.gpuscheduler.scheduler.TaskStateMachine;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +39,8 @@ class GpuTaskServiceTest {
     private GpuTaskLogMapper taskLogMapper;
     @Mock
     private TaskPriorityQueue priorityQueue;
+    @Mock
+    private TaskAgingScheduler agingScheduler;
 
     @InjectMocks
     private GpuTaskService gpuTaskService;
@@ -47,7 +50,14 @@ class GpuTaskServiceTest {
     @BeforeEach
     void setUp() {
         // 用真实的状态机替换mock
-        gpuTaskService = new GpuTaskService(taskMapper, taskLogMapper, stateMachine, priorityQueue);
+        gpuTaskService = new GpuTaskService(taskMapper, taskLogMapper, stateMachine, priorityQueue, agingScheduler);
+
+        // Mock aging scheduler to return basePriority for simplicity (lenient to avoid UnnecessaryStubbingException)
+        lenient().when(agingScheduler.calculateEffectivePriority(any(GpuTask.class)))
+                .thenAnswer(inv -> {
+                    GpuTask task = inv.getArgument(0);
+                    return (double) task.getBasePriority();
+                });
     }
 
     @Test

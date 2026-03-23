@@ -6,6 +6,7 @@ import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -54,7 +55,7 @@ public class TaskPriorityQueue {
             return null;
         }
         ZSetOperations.TypedTuple<String> top = tuples.iterator().next();
-        Long taskId = Long.valueOf(top.getValue());
+        Long taskId = Long.valueOf(Objects.requireNonNull(top.getValue()));
         log.info("任务出队: taskId={}, score={}", taskId, top.getScore());
         return taskId;
     }
