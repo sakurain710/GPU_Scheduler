@@ -9,6 +9,7 @@ import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
 import com.sakurain.gpuscheduler.service.GpuTaskService;
 import com.sakurain.gpuscheduler.util.RedisLockService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationContext;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,7 +36,6 @@ public class TaskDispatcher {
 
     private static final String LOCK_KEY = "dispatcher:lock";
     private static final int MAX_CONSECUTIVE_FAILURES = 5;
-    private static final long BACKOFF_MS = 30000; // 30秒
 
     private final TaskPriorityQueue priorityQueue;
     private final GpuAllocator gpuAllocator;
@@ -43,21 +43,30 @@ public class TaskDispatcher {
     private final GpuTaskMapper taskMapper;
     private final GpuMapper gpuMapper;
     private final RedisLockService lockService;
+    private final ApplicationContext applicationContext;
 
     private int consecutiveFailures = 0;
+    private TaskDispatcher self;
 
     public TaskDispatcher(TaskPriorityQueue priorityQueue,
                           GpuAllocator gpuAllocator,
                           GpuTaskService taskService,
                           GpuTaskMapper taskMapper,
                           GpuMapper gpuMapper,
-                          RedisLockService lockService) {
+                          RedisLockService lockService,
+                          ApplicationContext applicationContext) {
         this.priorityQueue = priorityQueue;
         this.gpuAllocator = gpuAllocator;
         this.taskService = taskService;
         this.taskMapper = taskMapper;
         this.gpuMapper = gpuMapper;
         this.lockService = lockService;
+        this.applicationContext = applicationContext;
+    }
+
+    @jakarta.annotation.PostConstruct
+    public void init() {
+        this.self = applicationContext.getBean(TaskDispatcher.class);
     }
 
     /**
@@ -102,8 +111,7 @@ public class TaskDispatcher {
                     // 熔断器：连续失败次数增加
                     consecutiveFailures++;
                     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                        log.warn("连续{}次分配失败，触发熔断，等待{}ms", consecutiveFailures, BACKOFF_MS);
-                        Thread.sleep(BACKOFF_MS);
+                        log.warn("连续{}次分配失败，触发熔断，跳过本轮调度", consecutiveFailures);
                         consecutiveFailures = 0;
                     }
                     break;
@@ -111,9 +119,9 @@ public class TaskDispatcher {
 
                 Gpu gpu = gpuOpt.get();
 
-                // 分配GPU并转换任务状态 QUEUED→RUNNING
+                // 分配GPU并转换任务状态 QUEUED→RUNNING（通过代理调用以启用事务）
                 try {
-                    assignGpuToTask(task, gpu);
+                    self.assignGpuToTask(task, gpu);
                     log.info("任务{}已分配到GPU[{}] {}", taskId, gpu.getId(), gpu.getName());
                     consecutiveFailures = 0; // 成功后重置失败计数
                 } catch (Exception e) {
@@ -122,9 +130,6 @@ public class TaskDispatcher {
                     priorityQueue.enqueue(taskId, task.getBasePriority());
                 }
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("调度循环被中断", e);
         } catch (Exception e) {
             log.error("调度循环异常", e);
         } finally {
