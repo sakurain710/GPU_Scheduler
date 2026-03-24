@@ -63,11 +63,10 @@ public class MonitoringService {
         for (TaskStatus s : TaskStatus.values()) {
             countByStatus.put(s.getLabel(), 0L);
         }
-        allTasks.stream()
+        countByStatus.putAll(allTasks.stream()
                 .collect(Collectors.groupingBy(
                         t -> TaskStatus.fromCode(t.getStatus()).getLabel(),
-                        Collectors.counting()))
-                .forEach(countByStatus::put);
+                        Collectors.counting())));
 
         // 各优先级平均等待时间（仅 QUEUED 任务，等待时间 = now - enqueueAt）
         Map<String, Double> avgWaitByPriority = allTasks.stream()
@@ -122,11 +121,10 @@ public class MonitoringService {
         for (GpuStatus s : GpuStatus.values()) {
             countByStatus.put(s.getLabel(), 0L);
         }
-        allGpus.stream()
+        countByStatus.putAll(allGpus.stream()
                 .collect(Collectors.groupingBy(
                         g -> GpuStatus.fromCode(g.getStatus()).getLabel(),
-                        Collectors.counting()))
-                .forEach(countByStatus::put);
+                        Collectors.counting())));
 
         long busy = countByStatus.getOrDefault("Busy", 0L);
         String utilizationRate = total == 0 ? "0.0%" :
@@ -241,7 +239,9 @@ public class MonitoringService {
 
     private String checkRedis() {
         try {
-            redisTemplate.getConnectionFactory().getConnection().ping();
+            if (redisTemplate.getConnectionFactory() != null) {
+                redisTemplate.getConnectionFactory().getConnection().ping();
+            }
             return "UP";
         } catch (Exception e) {
             log.warn("Redis health check failed: {}", e.getMessage());
