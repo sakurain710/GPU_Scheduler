@@ -2,21 +2,13 @@ package com.sakurain.gpuscheduler.scheduler;
 
 import com.sakurain.gpuscheduler.entity.Gpu;
 import com.sakurain.gpuscheduler.entity.GpuTask;
-import com.sakurain.gpuscheduler.enums.GpuStatus;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
-import com.sakurain.gpuscheduler.mapper.GpuMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
-import com.sakurain.gpuscheduler.service.GpuTaskService;
 import com.sakurain.gpuscheduler.util.RedisLockService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationContext;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -29,6 +21,10 @@ import java.util.concurrent.TimeUnit;
  * 2. 使用BestFit算法查找合适的GPU
  * 3. 分配GPU并转换任务状态 QUEUED→RUNNING
  * 4. 更新GPU状态为BUSY
+ * <p>
+ * 熔断器：连续分配失败达到阈值后，指数退避跳过若干轮调度，
+ * 避免在无可用GPU时持续空转。退避不使用 Thread.sleep()，
+ * 而是记录"跳过轮次"，由 @Scheduled 的固定延迟自然提供间隔。
  */
 @Slf4j
 @Component
@@ -36,160 +32,97 @@ public class TaskDispatcher {
 
     private static final String LOCK_KEY = "dispatcher:lock";
     private static final int MAX_CONSECUTIVE_FAILURES = 5;
+    /** 初始退避轮次（每次触发熔断后翻倍，最大 MAX_BACKOFF_ROUNDS 轮） */
+    private static final int INITIAL_BACKOFF_ROUNDS = 1;
+    private static final int MAX_BACKOFF_ROUNDS = 32;
 
     private final TaskPriorityQueue priorityQueue;
     private final GpuAllocator gpuAllocator;
-    private final GpuTaskService taskService;
     private final GpuTaskMapper taskMapper;
-    private final GpuMapper gpuMapper;
     private final RedisLockService lockService;
-    private final ApplicationContext applicationContext;
+    private final TaskAssignmentService assignmentService;
 
     private int consecutiveFailures = 0;
-    private TaskDispatcher self;
+    /** 指数退避：剩余需跳过的调度轮次 */
+    private int backoffRoundsRemaining = 0;
+    /** 当前退避步长（触发熔断时翻倍） */
+    private int currentBackoffRounds = INITIAL_BACKOFF_ROUNDS;
 
     public TaskDispatcher(TaskPriorityQueue priorityQueue,
                           GpuAllocator gpuAllocator,
-                          GpuTaskService taskService,
                           GpuTaskMapper taskMapper,
-                          GpuMapper gpuMapper,
                           RedisLockService lockService,
-                          ApplicationContext applicationContext) {
+                          TaskAssignmentService assignmentService) {
         this.priorityQueue = priorityQueue;
         this.gpuAllocator = gpuAllocator;
-        this.taskService = taskService;
         this.taskMapper = taskMapper;
-        this.gpuMapper = gpuMapper;
         this.lockService = lockService;
-        this.applicationContext = applicationContext;
-    }
-
-    @jakarta.annotation.PostConstruct
-    public void init() {
-        this.self = applicationContext.getBean(TaskDispatcher.class);
+        this.assignmentService = assignmentService;
     }
 
     /**
      * 调度循环 — 每5秒执行一次
-     * 从队列中取出任务并分配GPU
      */
     @Scheduled(fixedDelay = 5000, initialDelay = 10000)
     public void dispatch() {
-        String lockValue = UUID.randomUUID().toString();
+        // 指数退避：跳过本轮
+        if (backoffRoundsRemaining > 0) {
+            backoffRoundsRemaining--;
+            log.debug("熔断退避中，剩余跳过轮次: {}", backoffRoundsRemaining);
+            return;
+        }
 
-        // 尝试获取分布式锁
+        String lockValue = UUID.randomUUID().toString();
         if (!lockService.tryLock(LOCK_KEY, lockValue, 10, TimeUnit.SECONDS)) {
             log.debug("无法获取调度锁，跳过本次调度");
             return;
         }
 
         try {
-            // 持续处理队列中的任务，直到队列为空或没有可用GPU
             while (true) {
-                // 直接出队（原子操作，避免peek+dequeue的竞态）
                 Long taskId = priorityQueue.dequeue();
                 if (taskId == null) {
-                    // 队列为空，退出循环
                     break;
                 }
 
-                // 查询任务详情
                 GpuTask task = taskMapper.selectById(taskId);
                 if (task == null || task.getStatus() != TaskStatus.QUEUED.getCode()) {
-                    // 任务不存在或状态已变更
                     log.warn("任务{}不存在或状态已变更", taskId);
                     continue;
                 }
 
-                // 使用BestFit算法查找合适的GPU
                 Optional<Gpu> gpuOpt = gpuAllocator.allocate(task);
                 if (gpuOpt.isEmpty()) {
-                    // 没有可用GPU，将任务重新入队并退出
                     priorityQueue.enqueue(taskId, task.getBasePriority());
                     log.debug("没有可用GPU满足任务{}的需求，重新入队", taskId);
 
-                    // 熔断器：连续失败次数增加
                     consecutiveFailures++;
                     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                        log.warn("连续{}次分配失败，触发熔断，跳过本轮调度", consecutiveFailures);
+                        // 触发熔断，指数退避
+                        currentBackoffRounds = Math.min(currentBackoffRounds * 2, MAX_BACKOFF_ROUNDS);
+                        backoffRoundsRemaining = currentBackoffRounds;
+                        log.warn("连续{}次分配失败，触发熔断，退避{}轮", consecutiveFailures, backoffRoundsRemaining);
                         consecutiveFailures = 0;
                     }
                     break;
                 }
 
                 Gpu gpu = gpuOpt.get();
-
-                // 分配GPU并转换任务状态 QUEUED→RUNNING（通过代理调用以启用事务）
                 try {
-                    self.assignGpuToTask(task, gpu);
+                    assignmentService.assign(task, gpu);
                     log.info("任务{}已分配到GPU[{}] {}", taskId, gpu.getId(), gpu.getName());
-                    consecutiveFailures = 0; // 成功后重置失败计数
+                    consecutiveFailures = 0;
+                    currentBackoffRounds = INITIAL_BACKOFF_ROUNDS; // 成功后重置退避步长
                 } catch (Exception e) {
                     log.error("分配GPU失败: taskId={}, gpuId={}", taskId, gpu.getId(), e);
-                    // 分配失败，将任务重新入队
                     priorityQueue.enqueue(taskId, task.getBasePriority());
                 }
             }
         } catch (Exception e) {
             log.error("调度循环异常", e);
         } finally {
-            // 释放锁
             lockService.unlock(LOCK_KEY, lockValue);
         }
-    }
-
-    /**
-     * 分配GPU给任务（事务方法）
-     * 1. 更新GPU状态为BUSY
-     * 2. 计算预估完成时间
-     * 3. 转换任务状态 QUEUED→RUNNING
-     *
-     * @param task 任务
-     * @param gpu  分配的GPU
-     */
-    @Transactional
-    public void assignGpuToTask(GpuTask task, Gpu gpu) {
-        // 1. 更新GPU状态为BUSY
-        gpu.setStatus(GpuStatus.BUSY.getCode());
-        gpuMapper.updateById(gpu);
-
-        // 2. 计算预估执行时间和完成时间
-        BigDecimal estimatedSeconds = calculateEstimatedSeconds(
-                task.getComputeUnitsGflop(),
-                gpu.getComputingPowerTflops()
-        );
-        task.setEstimatedSeconds(estimatedSeconds);
-
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime estimatedFinishAt = now.plusSeconds(estimatedSeconds.longValue());
-        task.setEstimatedFinishAt(estimatedFinishAt);
-
-        // 3. 转换任务状态 QUEUED→RUNNING，分配GPU
-        taskService.transition(task.getId(), TaskStatus.RUNNING, gpu.getId(), null);
-
-        log.info("GPU分配完成: 任务{}分配到GPU[{}], 预估执行{}秒, 预计完成时间{}",
-                task.getId(), gpu.getId(), estimatedSeconds, estimatedFinishAt);
-    }
-
-    /**
-     * 计算预估执行时间
-     * 公式: estimatedSeconds = computeUnitsGflop / (computingPowerTflops × 1000)
-     *
-     * @param computeUnitsGflop      计算量（GFLOP）
-     * @param computingPowerTflops   GPU算力（TFLOPS）
-     * @return 预估执行秒数
-     */
-    private BigDecimal calculateEstimatedSeconds(BigDecimal computeUnitsGflop,
-                                                  BigDecimal computingPowerTflops) {
-        if (computeUnitsGflop == null || computingPowerTflops == null) {
-            return BigDecimal.ZERO;
-        }
-
-        // TFLOPS转换为GFLOPS: 1 TFLOPS = 1000 GFLOPS
-        BigDecimal computingPowerGflops = computingPowerTflops.multiply(new BigDecimal("1000"));
-
-        // estimatedSeconds = computeUnitsGflop / computingPowerGflops
-        return computeUnitsGflop.divide(computingPowerGflops, 4, RoundingMode.HALF_UP);
     }
 
     /**
