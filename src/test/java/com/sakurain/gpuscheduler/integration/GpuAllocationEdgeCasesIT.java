@@ -13,7 +13,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.data.redis.core.RedisTemplate;
 
 import java.math.BigDecimal;
@@ -45,9 +45,9 @@ class GpuAllocationEdgeCasesIT {
     @Autowired private RedisTemplate<String, String> redisTemplate;
     @Autowired private GpuAllocator gpuAllocator;
 
-    @MockBean private GpuMapper gpuMapper;
-    @MockBean private GpuTaskMapper taskMapper;
-    @MockBean private GpuTaskLogMapper taskLogMapper;
+    @MockitoBean private GpuMapper gpuMapper;
+    @MockitoBean private GpuTaskMapper taskMapper;
+    @MockitoBean private GpuTaskLogMapper taskLogMapper;
 
     @BeforeEach
     void setUp() {

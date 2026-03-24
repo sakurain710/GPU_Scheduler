@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.data.redis.core.RedisTemplate;
 
 import java.math.BigDecimal;
@@ -46,9 +46,9 @@ class StateMachineRedisIT {
     @Autowired private RedisTemplate<String, String> redisTemplate;
     @Autowired private TaskStateMachine stateMachine;
 
-    @MockBean private GpuTaskMapper taskMapper;
-    @MockBean private GpuTaskLogMapper taskLogMapper;
-    @MockBean private GpuMapper gpuMapper;
+    @MockitoBean private GpuTaskMapper taskMapper;
+    @MockitoBean private GpuTaskLogMapper taskLogMapper;
+    @MockitoBean private GpuMapper gpuMapper;
 
     @Autowired private GpuTaskService taskService;
 

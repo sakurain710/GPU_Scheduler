@@ -16,7 +16,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.data.redis.core.RedisTemplate;
 
 import java.math.BigDecimal;
@@ -56,9 +56,9 @@ class TaskSubmissionToCompletionIT {
     @Autowired private CircuitBreakerService circuitBreaker;
 
     /* ── 数据库层 Mock ─────────────────────────────────── */
-    @MockBean private GpuTaskMapper taskMapper;
-    @MockBean private GpuTaskLogMapper taskLogMapper;
-    @MockBean private GpuMapper gpuMapper;
+    @MockitoBean private GpuTaskMapper taskMapper;
+    @MockitoBean private GpuTaskLogMapper taskLogMapper;
+    @MockitoBean private GpuMapper gpuMapper;
 
     /* ── 业务 Bean（依赖上面的 Mock）────────────────────── */
     @Autowired private GpuTaskService taskService;
