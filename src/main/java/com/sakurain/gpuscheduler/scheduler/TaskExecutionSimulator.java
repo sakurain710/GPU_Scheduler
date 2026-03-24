@@ -1,11 +1,13 @@
 package com.sakurain.gpuscheduler.scheduler;
 
 import com.sakurain.gpuscheduler.entity.GpuTask;
+import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PreDestroy;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Map;
 import java.util.concurrent.*;
 
@@ -33,7 +35,7 @@ public class TaskExecutionSimulator {
                 new ThreadFactory() {
                     private int counter = 0;
                     @Override
-                    public Thread newThread(Runnable r) {
+                    public Thread newThread(@NonNull Runnable r) {
                         Thread thread = new Thread(r);
                         thread.setName("gpu-task-executor-" + counter++);
                         thread.setDaemon(false);
@@ -80,7 +82,7 @@ public class TaskExecutionSimulator {
             Thread.sleep(actualMs);
 
             long elapsed = System.currentTimeMillis() - startTime;
-            BigDecimal actualSeconds = new BigDecimal(elapsed).divide(new BigDecimal("1000"), 4, BigDecimal.ROUND_HALF_UP);
+            BigDecimal actualSeconds = new BigDecimal(elapsed).divide(new BigDecimal("1000"), 4, RoundingMode.HALF_UP);
 
             circuitBreaker.recordSuccess();
             log.info("任务{}执行成功: 预估{}秒, 实际{}秒",
