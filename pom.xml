@@ -40,6 +40,13 @@
             <scope>test</scope>
         </dependency>
 
+        <!--H2 内存数据库 — 集成测试用，替代 MySQL-->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!--Spring Web-->
         <dependency>
             <groupId>org.springframework.boot</groupId>
