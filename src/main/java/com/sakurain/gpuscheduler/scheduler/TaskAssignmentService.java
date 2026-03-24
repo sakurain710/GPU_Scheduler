@@ -9,6 +9,8 @@ import com.sakurain.gpuscheduler.service.GpuTaskService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -23,10 +25,14 @@ public class TaskAssignmentService {
 
     private final GpuMapper gpuMapper;
     private final GpuTaskService taskService;
+    private final TaskExecutionSimulator simulator;
 
-    public TaskAssignmentService(GpuMapper gpuMapper, GpuTaskService taskService) {
+    public TaskAssignmentService(GpuMapper gpuMapper,
+                                 GpuTaskService taskService,
+                                 TaskExecutionSimulator simulator) {
         this.gpuMapper = gpuMapper;
         this.taskService = taskService;
+        this.simulator = simulator;
     }
 
     /**
@@ -53,6 +59,24 @@ public class TaskAssignmentService {
 
         // 3. 转换任务状态 QUEUED→RUNNING，分配GPU
         taskService.transition(task.getId(), TaskStatus.RUNNING, gpu.getId(), null);
+
+        // 4. 事务提交后提交到执行模拟器（避免事务未提交时模拟器已完成）
+        final GpuTask taskSnapshot = GpuTask.builder()
+                .id(task.getId())
+                .gpuId(gpu.getId())
+                .estimatedSeconds(estimatedSeconds)
+                .dispatchedAt(now)
+                .build();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    simulator.submitTask(taskSnapshot);
+                } catch (Exception e) {
+                    log.error("提交任务{}到执行模拟器失败", taskSnapshot.getId(), e);
+                }
+            }
+        });
 
         log.info("GPU分配完成: 任务{}分配到GPU[{}], 预估执行{}秒, 预计完成时间{}",
                 task.getId(), gpu.getId(), estimatedSeconds, task.getEstimatedFinishAt());
