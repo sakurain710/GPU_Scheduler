@@ -7,6 +7,7 @@ import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.mapper.GpuMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
 import com.sakurain.gpuscheduler.service.GpuTaskService;
+import com.sakurain.gpuscheduler.util.RedisLockService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,6 +42,9 @@ class TaskDispatcherTest {
     @Mock
     private GpuMapper gpuMapper;
 
+    @Mock
+    private RedisLockService lockService;
+
     @InjectMocks
     private TaskDispatcher dispatcher;
 
@@ -49,6 +53,9 @@ class TaskDispatcherTest {
 
     @BeforeEach
     void setUp() {
+        // Mock lock service to always succeed
+        when(lockService.tryLock(anyString(), anyString(), anyLong(), any())).thenReturn(true);
+
         // 创建一个排队中的任务
         queuedTask = GpuTask.builder()
                 .id(100L)
@@ -74,8 +81,7 @@ class TaskDispatcherTest {
     @Test
     void testDispatch_SuccessfulAllocation() {
         // 模拟队列中有一个任务
-        when(priorityQueue.peek()).thenReturn(100L, (Long) null);
-        when(priorityQueue.dequeue()).thenReturn(100L);
+        when(priorityQueue.dequeue()).thenReturn(100L, null);
         when(taskMapper.selectById(100L)).thenReturn(queuedTask);
         when(gpuAllocator.allocate(queuedTask)).thenReturn(Optional.of(idleGpu));
         when(gpuMapper.updateById(any(Gpu.class))).thenReturn(1);
@@ -97,21 +103,21 @@ class TaskDispatcherTest {
         );
 
         // 验证任务从队列出队
-        verify(priorityQueue, times(1)).dequeue();
+        verify(priorityQueue, times(2)).dequeue();
     }
 
     @Test
     void testDispatch_NoAvailableGpu() {
         // 模拟队列中有任务，但没有可用GPU
-        when(priorityQueue.peek()).thenReturn(100L);
+        when(priorityQueue.dequeue()).thenReturn(100L);
         when(taskMapper.selectById(100L)).thenReturn(queuedTask);
         when(gpuAllocator.allocate(queuedTask)).thenReturn(Optional.empty());
 
         // 执行调度
         dispatcher.dispatchOnce();
 
-        // 验证任务未出队
-        verify(priorityQueue, never()).dequeue();
+        // 验证任务被重新入队
+        verify(priorityQueue, times(1)).enqueue(eq(100L), anyDouble());
 
         // 验证任务状态未转换
         verify(taskService, never()).transition(anyLong(), any(), any(), any());
@@ -123,7 +129,7 @@ class TaskDispatcherTest {
     @Test
     void testDispatch_EmptyQueue() {
         // 模拟空队列
-        when(priorityQueue.peek()).thenReturn(null);
+        when(priorityQueue.dequeue()).thenReturn(null);
 
         // 执行调度
         dispatcher.dispatchOnce();
@@ -131,20 +137,16 @@ class TaskDispatcherTest {
         // 验证没有任何操作
         verify(taskMapper, never()).selectById(anyLong());
         verify(gpuAllocator, never()).allocate(any());
-        verify(priorityQueue, never()).dequeue();
     }
 
     @Test
     void testDispatch_TaskNotFound() {
         // 模拟队列中有任务ID，但数据库中找不到任务
-        when(priorityQueue.peek()).thenReturn(100L, (Long) null);
+        when(priorityQueue.dequeue()).thenReturn(100L, null);
         when(taskMapper.selectById(100L)).thenReturn(null);
 
         // 执行调度
         dispatcher.dispatchOnce();
-
-        // 验证任务从队列移除
-        verify(priorityQueue, times(1)).remove(100L);
 
         // 验证没有分配GPU
         verify(gpuAllocator, never()).allocate(any());
@@ -159,14 +161,11 @@ class TaskDispatcherTest {
                 .status(TaskStatus.RUNNING.getCode())
                 .build();
 
-        when(priorityQueue.peek()).thenReturn(100L, (Long) null);
+        when(priorityQueue.dequeue()).thenReturn(100L, null);
         when(taskMapper.selectById(100L)).thenReturn(runningTask);
 
         // 执行调度
         dispatcher.dispatchOnce();
-
-        // 验证任务从队列移除
-        verify(priorityQueue, times(1)).remove(100L);
 
         // 验证没有分配GPU
         verify(gpuAllocator, never()).allocate(any());
@@ -180,6 +179,7 @@ class TaskDispatcherTest {
                 .minMemoryGb(new BigDecimal("24.00"))
                 .computeUnitsGflop(new BigDecimal("500000.0000"))
                 .status(TaskStatus.QUEUED.getCode())
+                .basePriority(5)
                 .build();
 
         GpuTask task2 = GpuTask.builder()
@@ -187,6 +187,7 @@ class TaskDispatcherTest {
                 .minMemoryGb(new BigDecimal("16.00"))
                 .computeUnitsGflop(new BigDecimal("300000.0000"))
                 .status(TaskStatus.QUEUED.getCode())
+                .basePriority(3)
                 .build();
 
         Gpu gpu1 = Gpu.builder()
@@ -205,8 +206,7 @@ class TaskDispatcherTest {
                 .status(GpuStatus.IDLE.getCode())
                 .build();
 
-        when(priorityQueue.peek()).thenReturn(100L, 101L, null);
-        when(priorityQueue.dequeue()).thenReturn(100L, 101L);
+        when(priorityQueue.dequeue()).thenReturn(100L, 101L, null);
         when(taskMapper.selectById(100L)).thenReturn(task1);
         when(taskMapper.selectById(101L)).thenReturn(task2);
         when(gpuAllocator.allocate(task1)).thenReturn(Optional.of(gpu1));
@@ -217,7 +217,7 @@ class TaskDispatcherTest {
         dispatcher.dispatchOnce();
 
         // 验证两个任务都被处理
-        verify(priorityQueue, times(2)).dequeue();
+        verify(priorityQueue, times(3)).dequeue();
         verify(taskService, times(1)).transition(eq(100L), eq(TaskStatus.RUNNING), eq(1L), isNull());
         verify(taskService, times(1)).transition(eq(101L), eq(TaskStatus.RUNNING), eq(2L), isNull());
     }
@@ -225,8 +225,7 @@ class TaskDispatcherTest {
     @Test
     void testDispatch_AllocationFailure() {
         // 模拟分配过程中出现异常
-        when(priorityQueue.peek()).thenReturn(100L, (Long) null);
-        when(priorityQueue.dequeue()).thenReturn(100L);
+        when(priorityQueue.dequeue()).thenReturn(100L, null);
         when(taskMapper.selectById(100L)).thenReturn(queuedTask);
         when(gpuAllocator.allocate(queuedTask)).thenReturn(Optional.of(idleGpu));
         when(gpuMapper.updateById(any(Gpu.class))).thenReturn(1);
@@ -243,12 +242,7 @@ class TaskDispatcherTest {
     @Test
     void testDispatch_EstimatedTimeCalculation() {
         // 验证预估时间计算
-        // computeUnitsGflop = 500000 GFLOP
-        // computingPowerTflops = 19.5 TFLOPS = 19500 GFLOPS
-        // estimatedSeconds = 500000 / 19500 ≈ 25.64 seconds
-
-        when(priorityQueue.peek()).thenReturn(100L, (Long) null);
-        when(priorityQueue.dequeue()).thenReturn(100L);
+        when(priorityQueue.dequeue()).thenReturn(100L, null);
         when(taskMapper.selectById(100L)).thenReturn(queuedTask);
         when(gpuAllocator.allocate(queuedTask)).thenReturn(Optional.of(idleGpu));
         when(gpuMapper.updateById(any(Gpu.class))).thenReturn(1);

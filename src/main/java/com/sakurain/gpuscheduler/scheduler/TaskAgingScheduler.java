@@ -10,7 +10,8 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * 任务老化调度器 — 定期刷新Redis队列中任务的优先级
@@ -44,22 +45,27 @@ public class TaskAgingScheduler {
         }
 
         long startTime = System.currentTimeMillis();
-        int refreshedCount = 0;
+        Set<Long> toRemove = new HashSet<>();
 
         try {
             // 使用TaskPriorityQueue的refreshScores方法批量更新
             priorityQueue.refreshScores(taskId -> {
                 GpuTask task = taskMapper.selectById(taskId);
                 if (task == null || task.getStatus() != TaskStatus.QUEUED.getCode()) {
-                    // 任务已被删除或状态已变更，返回0（会在下次清理时移除）
+                    // 任务已被删除或状态已变更，标记为待移除
+                    toRemove.add(taskId);
                     return 0.0;
                 }
                 return calculateEffectivePriority(task);
             });
 
-            refreshedCount = (int) priorityQueue.size();
+            // 移除无效任务
+            toRemove.forEach(priorityQueue::remove);
+
+            int refreshedCount = (int) priorityQueue.size();
             long elapsed = System.currentTimeMillis() - startTime;
-            log.info("任务优先级刷新完成: 刷新{}个任务, 耗时{}ms", refreshedCount, elapsed);
+            log.info("任务优先级刷新完成: 刷新{}个任务, 移除{}个无效任务, 耗时{}ms",
+                    refreshedCount, toRemove.size(), elapsed);
 
         } catch (Exception e) {
             log.error("任务优先级刷新失败", e);

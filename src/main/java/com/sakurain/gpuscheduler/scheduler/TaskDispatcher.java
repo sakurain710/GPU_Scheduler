@@ -7,14 +7,18 @@ import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.mapper.GpuMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
 import com.sakurain.gpuscheduler.service.GpuTaskService;
+import com.sakurain.gpuscheduler.util.RedisLockService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 任务调度器 — 持续轮询Redis队列并分配GPU
@@ -29,22 +33,31 @@ import java.util.Optional;
 @Component
 public class TaskDispatcher {
 
+    private static final String LOCK_KEY = "dispatcher:lock";
+    private static final int MAX_CONSECUTIVE_FAILURES = 5;
+    private static final long BACKOFF_MS = 30000; // 30秒
+
     private final TaskPriorityQueue priorityQueue;
     private final GpuAllocator gpuAllocator;
     private final GpuTaskService taskService;
     private final GpuTaskMapper taskMapper;
     private final GpuMapper gpuMapper;
+    private final RedisLockService lockService;
+
+    private int consecutiveFailures = 0;
 
     public TaskDispatcher(TaskPriorityQueue priorityQueue,
                           GpuAllocator gpuAllocator,
                           GpuTaskService taskService,
                           GpuTaskMapper taskMapper,
-                          GpuMapper gpuMapper) {
+                          GpuMapper gpuMapper,
+                          RedisLockService lockService) {
         this.priorityQueue = priorityQueue;
         this.gpuAllocator = gpuAllocator;
         this.taskService = taskService;
         this.taskMapper = taskMapper;
         this.gpuMapper = gpuMapper;
+        this.lockService = lockService;
     }
 
     /**
@@ -53,10 +66,19 @@ public class TaskDispatcher {
      */
     @Scheduled(fixedDelay = 5000, initialDelay = 10000)
     public void dispatch() {
+        String lockValue = UUID.randomUUID().toString();
+
+        // 尝试获取分布式锁
+        if (!lockService.tryLock(LOCK_KEY, lockValue, 10, TimeUnit.SECONDS)) {
+            log.debug("无法获取调度锁，跳过本次调度");
+            return;
+        }
+
         try {
             // 持续处理队列中的任务，直到队列为空或没有可用GPU
             while (true) {
-                Long taskId = priorityQueue.peek();
+                // 直接出队（原子操作，避免peek+dequeue的竞态）
+                Long taskId = priorityQueue.dequeue();
                 if (taskId == null) {
                     // 队列为空，退出循环
                     break;
@@ -65,46 +87,54 @@ public class TaskDispatcher {
                 // 查询任务详情
                 GpuTask task = taskMapper.selectById(taskId);
                 if (task == null || task.getStatus() != TaskStatus.QUEUED.getCode()) {
-                    // 任务不存在或状态已变更，从队列移除
-                    priorityQueue.remove(taskId);
-                    log.warn("任务{}不存在或状态已变更，从队列移除", taskId);
+                    // 任务不存在或状态已变更
+                    log.warn("任务{}不存在或状态已变更", taskId);
                     continue;
                 }
 
                 // 使用BestFit算法查找合适的GPU
                 Optional<Gpu> gpuOpt = gpuAllocator.allocate(task);
                 if (gpuOpt.isEmpty()) {
-                    // 没有可用GPU，退出循环等待下次调度
-                    log.debug("没有可用GPU满足任务{}的需求，等待下次调度", taskId);
+                    // 没有可用GPU，将任务重新入队并退出
+                    priorityQueue.enqueue(taskId, task.getBasePriority());
+                    log.debug("没有可用GPU满足任务{}的需求，重新入队", taskId);
+
+                    // 熔断器：连续失败次数增加
+                    consecutiveFailures++;
+                    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                        log.warn("连续{}次分配失败，触发熔断，等待{}ms", consecutiveFailures, BACKOFF_MS);
+                        Thread.sleep(BACKOFF_MS);
+                        consecutiveFailures = 0;
+                    }
                     break;
                 }
 
                 Gpu gpu = gpuOpt.get();
 
-                // 从队列出队
-                Long dequeuedTaskId = priorityQueue.dequeue();
-                if (dequeuedTaskId == null || !dequeuedTaskId.equals(taskId)) {
-                    log.warn("出队任务ID不匹配: 期望{}, 实际{}", taskId, dequeuedTaskId);
-                    continue;
-                }
-
                 // 分配GPU并转换任务状态 QUEUED→RUNNING
                 try {
                     assignGpuToTask(task, gpu);
                     log.info("任务{}已分配到GPU[{}] {}", taskId, gpu.getId(), gpu.getName());
+                    consecutiveFailures = 0; // 成功后重置失败计数
                 } catch (Exception e) {
                     log.error("分配GPU失败: taskId={}, gpuId={}", taskId, gpu.getId(), e);
                     // 分配失败，将任务重新入队
                     priorityQueue.enqueue(taskId, task.getBasePriority());
                 }
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("调度循环被中断", e);
         } catch (Exception e) {
             log.error("调度循环异常", e);
+        } finally {
+            // 释放锁
+            lockService.unlock(LOCK_KEY, lockValue);
         }
     }
 
     /**
-     * 分配GPU给任务
+     * 分配GPU给任务（事务方法）
      * 1. 更新GPU状态为BUSY
      * 2. 计算预估完成时间
      * 3. 转换任务状态 QUEUED→RUNNING
@@ -112,7 +142,8 @@ public class TaskDispatcher {
      * @param task 任务
      * @param gpu  分配的GPU
      */
-    private void assignGpuToTask(GpuTask task, Gpu gpu) {
+    @Transactional
+    public void assignGpuToTask(GpuTask task, Gpu gpu) {
         // 1. 更新GPU状态为BUSY
         gpu.setStatus(GpuStatus.BUSY.getCode());
         gpuMapper.updateById(gpu);
