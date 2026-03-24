@@ -55,3 +55,17 @@ rate-limit:
 # 幂等性配置
 idempotency:
   ttl: 86400              # 幂等键存活时间（秒），默认 24 小时
+
+# Actuator 配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
