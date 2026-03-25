@@ -171,6 +171,20 @@ class TaskDispatcherTest {
         verify(assignmentService, times(1)).assign(task2, gpu2);
     }
 
+
+    @Test
+    void testDispatch_AllocationFailure_BreaksCurrentLoopToAvoidHotRetry() {
+        when(priorityQueue.dequeue()).thenReturn(100L, 100L, null);
+        when(taskMapper.selectById(100L)).thenReturn(queuedTask);
+        when(gpuAllocator.allocate(queuedTask)).thenReturn(Optional.of(idleGpu));
+        doThrow(new RuntimeException("Database error"))
+                .when(assignmentService).assign(any(), any());
+
+        dispatcher.dispatchOnce();
+
+        verify(priorityQueue, times(1)).dequeue();
+        verify(priorityQueue, times(1)).enqueue(eq(100L), anyDouble());
+    }
     @Test
     void testDispatch_AllocationFailure() {
         when(priorityQueue.dequeue()).thenReturn(100L, null);

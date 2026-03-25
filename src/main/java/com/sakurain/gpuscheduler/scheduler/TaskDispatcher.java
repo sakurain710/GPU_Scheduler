@@ -116,6 +116,16 @@ public class TaskDispatcher {
                 } catch (Exception e) {
                     log.error("分配GPU失败: taskId={}, gpuId={}", taskId, gpu.getId(), e);
                     priorityQueue.enqueue(taskId, task.getBasePriority());
+
+                    // 赋值失败时立即结束本轮调度，避免同一任务在单次循环中被反复出队/入队形成热循环
+                    consecutiveFailures++;
+                    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                        currentBackoffRounds = Math.min(currentBackoffRounds * 2, MAX_BACKOFF_ROUNDS);
+                        backoffRoundsRemaining = currentBackoffRounds;
+                        log.warn("连续{}次分配失败，触发熔断，退避{}轮", consecutiveFailures, backoffRoundsRemaining);
+                        consecutiveFailures = 0;
+                    }
+                    break;
                 }
             }
         } catch (Exception e) {
