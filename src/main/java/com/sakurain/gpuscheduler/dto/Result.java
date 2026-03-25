@@ -1,5 +1,6 @@
 package com.sakurain.gpuscheduler.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -8,6 +9,7 @@ import lombok.NoArgsConstructor;
 /**
  * 统一响应结果封装
  */
+@Schema(description = "Standard API response wrapper")
 @Data
 @Builder
 @NoArgsConstructor
@@ -17,16 +19,19 @@ public class Result<T> {
     /**
      * 响应码
      */
+    @Schema(description = "Business status code", example = "200")
     private Integer code;
 
     /**
      * 响应消息
      */
+    @Schema(description = "Response message", example = "Operation successful")
     private String message;
 
     /**
      * 响应数据
      */
+    @Schema(description = "Payload")
     private T data;
 
     /**

@@ -89,7 +89,10 @@ public class SecurityConfig {
                                 "/api/auth/**",           // 认证相关接口（登录、刷新、登出）
                                 "/api/public/**",         // 公开接口
                                 "/error",                 // 错误页面
-                                "/actuator/health"        // 健康检查
+                                "/actuator/health",       // 健康检查
+                                "/v3/api-docs/**",
+                                "/swagger-ui/**",
+                                "/swagger-ui.html"
                         ).permitAll()
 
                         // 其他所有请求都需要认证

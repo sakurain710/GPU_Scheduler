@@ -1,5 +1,6 @@
 package com.sakurain.gpuscheduler.dto.monitor;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 import lombok.Data;
 
@@ -8,6 +9,7 @@ import java.util.Map;
 /**
  * 任务指标 DTO
  */
+@Schema(description = "Task metrics")
 @Data
 @Builder
 public class TaskMetrics {

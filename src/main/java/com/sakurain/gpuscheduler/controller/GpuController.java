@@ -7,12 +7,24 @@ import com.sakurain.gpuscheduler.dto.gpu.RegisterGpuRequest;
 import com.sakurain.gpuscheduler.dto.gpu.UpdateGpuStatusRequest;
 import com.sakurain.gpuscheduler.security.CustomUserDetails;
 import com.sakurain.gpuscheduler.service.GpuService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
@@ -29,6 +41,8 @@ import java.util.Map;
  *   GET    /api/gpu/metrics  — 利用率统计（仅ADMIN）
  */
 @Slf4j
+@Tag(name = "GPU Management", description = "GPU registration, query, status update and metrics")
+@SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/gpu")
 public class GpuController {
@@ -42,10 +56,12 @@ public class GpuController {
     /**
      * 列出所有GPU，支持按状态过滤和分页
      */
+    @Operation(summary = "List GPUs", description = "Supports pagination and optional status filter")
     @GetMapping
     public Result<IPage<GpuResponse>> listGpus(
-            @RequestParam(defaultValue = "1") Integer page,
-            @RequestParam(defaultValue = "20") Integer size,
+            @Parameter(description = "Page number, starts from 1") @RequestParam(defaultValue = "1") Integer page,
+            @Parameter(description = "Page size") @RequestParam(defaultValue = "20") Integer size,
+            @Parameter(description = "GPU status: 1=IDLE,2=BUSY,3=OFFLINE,4=MAINTENANCE")
             @RequestParam(required = false) Integer status) {
         return Result.success(gpuService.listGpus(page, size, status));
     }
@@ -53,6 +69,7 @@ public class GpuController {
     /**
      * 查询GPU详情
      */
+    @Operation(summary = "Get GPU by id")
     @GetMapping("/{gpuId}")
     public Result<GpuResponse> getGpu(@PathVariable Long gpuId) {
         return Result.success(gpuService.getGpu(gpuId));
@@ -61,6 +78,7 @@ public class GpuController {
     /**
      * 注册新GPU（仅ADMIN）
      */
+    @Operation(summary = "Register GPU", description = "Admin only")
     @PostMapping
     @PreAuthorize("hasRole('ROLE_ADMIN')")
     public Result<GpuResponse> registerGpu(@Valid @RequestBody RegisterGpuRequest request) {
@@ -72,6 +90,7 @@ public class GpuController {
     /**
      * 更新GPU状态（仅ADMIN）
      */
+    @Operation(summary = "Update GPU status", description = "Admin only")
     @PutMapping("/{gpuId}/status")
     @PreAuthorize("hasRole('ROLE_ADMIN')")
     public Result<GpuResponse> updateStatus(
@@ -84,6 +103,7 @@ public class GpuController {
     /**
      * 删除GPU（仅ADMIN）
      */
+    @Operation(summary = "Delete GPU", description = "Admin only")
     @DeleteMapping("/{gpuId}")
     @PreAuthorize("hasRole('ROLE_ADMIN')")
     public Result<Void> deleteGpu(@PathVariable Long gpuId) {
@@ -94,6 +114,7 @@ public class GpuController {
     /**
      * GPU健康检查 — 各状态数量统计（仅ADMIN）
      */
+    @Operation(summary = "GPU health summary", description = "Admin only")
     @GetMapping("/health")
     @PreAuthorize("hasRole('ROLE_ADMIN')")
     public Result<Map<String, Long>> healthCheck() {
@@ -103,6 +124,7 @@ public class GpuController {
     /**
      * GPU利用率统计（仅ADMIN）
      */
+    @Operation(summary = "GPU utilization metrics", description = "Admin only")
     @GetMapping("/metrics")
     @PreAuthorize("hasRole('ROLE_ADMIN')")
     public Result<Map<String, Object>> utilizationMetrics() {

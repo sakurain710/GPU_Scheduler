@@ -1,11 +1,13 @@
 package com.sakurain.gpuscheduler.dto.monitor;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 import lombok.Data;
 
 /**
  * 系统整体健康状态 DTO
  */
+@Schema(description = "System health")
 @Data
 @Builder
 public class SystemHealth {

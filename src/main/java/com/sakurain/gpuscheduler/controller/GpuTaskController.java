@@ -6,17 +6,27 @@ import com.sakurain.gpuscheduler.dto.task.TaskResponse;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.security.CustomUserDetails;
 import com.sakurain.gpuscheduler.service.GpuTaskService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * GPU任务控制器
  */
 @Slf4j
+@Tag(name = "Task Management", description = "Submit, query and cancel GPU tasks")
+@SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/task")
 public class GpuTaskController {
@@ -31,6 +41,7 @@ public class GpuTaskController {
     /**
      * 提交GPU计算任务
      */
+    @Operation(summary = "Submit GPU task")
     @PostMapping("/submit")
     public Result<TaskResponse> submitTask(@Valid @RequestBody SubmitTaskRequest request) {
         Long userId = getCurrentUserId();
@@ -41,6 +52,7 @@ public class GpuTaskController {
     /**
      * 查询任务详情
      */
+    @Operation(summary = "Get task detail")
     @GetMapping("/{taskId}")
     public Result<TaskResponse> getTask(@PathVariable Long taskId) {
         TaskResponse response = gpuTaskService.getTask(taskId);
@@ -50,6 +62,7 @@ public class GpuTaskController {
     /**
      * 取消任务
      */
+    @Operation(summary = "Cancel task")
     @PostMapping("/{taskId}/cancel")
     public Result<Void> cancelTask(@PathVariable Long taskId) {
         Long userId = getCurrentUserId();

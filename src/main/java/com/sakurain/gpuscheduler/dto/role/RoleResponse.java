@@ -1,5 +1,6 @@
 package com.sakurain.gpuscheduler.dto.role;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -11,6 +12,7 @@ import java.util.List;
 /**
  * 角色响应 DTO
  */
+@Schema(description = "Role response")
 @Data
 @Builder
 @NoArgsConstructor

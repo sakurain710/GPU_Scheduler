@@ -1,5 +1,6 @@
 package com.sakurain.gpuscheduler.dto.task;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -11,6 +12,8 @@ import java.time.LocalDateTime;
 /**
  * GPU任务响应
  */
+
+@Schema(description = "Task response")
 @Data
 @Builder
 @NoArgsConstructor

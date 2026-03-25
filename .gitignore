@@ -32,3 +32,4 @@ build/
 .vscode/
 /CLAUDE.md
 /.claude/settings.local.json
+/list.md

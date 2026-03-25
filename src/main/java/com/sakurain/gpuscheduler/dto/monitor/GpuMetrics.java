@@ -1,5 +1,6 @@
 package com.sakurain.gpuscheduler.dto.monitor;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 import lombok.Data;
 
@@ -9,6 +10,7 @@ import java.util.Map;
 /**
  * GPU 指标 DTO
  */
+@Schema(description = "GPU metrics")
 @Data
 @Builder
 public class GpuMetrics {

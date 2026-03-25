@@ -5,6 +5,10 @@ import com.sakurain.gpuscheduler.dto.monitor.GpuMetrics;
 import com.sakurain.gpuscheduler.dto.monitor.SystemHealth;
 import com.sakurain.gpuscheduler.dto.monitor.TaskMetrics;
 import com.sakurain.gpuscheduler.service.MonitoringService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,6 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
  *   GET /api/metrics  — 任务 + GPU 聚合指标（仅 ADMIN）
  */
 @Slf4j
+@Tag(name = "Monitoring", description = "System and business metrics")
+@SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api")
 public class MonitoringController {
@@ -34,6 +40,7 @@ public class MonitoringController {
      * <p>
      * 返回 DB / Redis 连通性、熔断器状态、队列最老任务等待时间
      */
+    @Operation(summary = "Get system health", description = "Admin only")
     @GetMapping("/health")
     @PreAuthorize("hasRole('ROLE_ADMIN')")
     public Result<SystemHealth> health() {
@@ -45,6 +52,7 @@ public class MonitoringController {
      * <p>
      * 包含：队列长度、状态分布、等待时间、完成率、失败率、GPU 利用率、VRAM 碎片化
      */
+    @Operation(summary = "Get merged metrics", description = "Admin only")
     @GetMapping("/metrics")
     @PreAuthorize("hasRole('ROLE_ADMIN')")
     public Result<MetricsResponse> metrics() {
@@ -54,5 +62,8 @@ public class MonitoringController {
     }
 
     /** 内联响应包装，避免额外 DTO 文件 */
-    public record MetricsResponse(TaskMetrics tasks, GpuMetrics gpus) {}
+    public record MetricsResponse(
+            @Schema(description = "Task metrics") TaskMetrics tasks,
+            @Schema(description = "GPU metrics") GpuMetrics gpus) {
+    }
 }
