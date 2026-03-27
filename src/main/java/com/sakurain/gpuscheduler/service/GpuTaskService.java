@@ -1,5 +1,8 @@
 package com.sakurain.gpuscheduler.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.sakurain.gpuscheduler.dto.task.SubmitTaskRequest;
 import com.sakurain.gpuscheduler.dto.task.TaskResponse;
 import com.sakurain.gpuscheduler.entity.GpuTask;
@@ -8,6 +11,7 @@ import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.exception.ResourceNotFoundException;
 import com.sakurain.gpuscheduler.mapper.GpuTaskLogMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
+import com.sakurain.gpuscheduler.scheduler.TaskAgingScheduler;
 import com.sakurain.gpuscheduler.scheduler.TaskPriorityQueue;
 import com.sakurain.gpuscheduler.scheduler.TaskStateMachine;
 import lombok.extern.slf4j.Slf4j;
@@ -25,13 +29,13 @@ public class GpuTaskService {
     private final GpuTaskLogMapper taskLogMapper;
     private final TaskStateMachine stateMachine;
     private final TaskPriorityQueue priorityQueue;
-    private final com.sakurain.gpuscheduler.scheduler.TaskAgingScheduler agingScheduler;
+    private final TaskAgingScheduler agingScheduler;
 
     public GpuTaskService(GpuTaskMapper taskMapper,
                           GpuTaskLogMapper taskLogMapper,
                           TaskStateMachine stateMachine,
                           TaskPriorityQueue priorityQueue,
-                          com.sakurain.gpuscheduler.scheduler.TaskAgingScheduler agingScheduler) {
+                          TaskAgingScheduler agingScheduler) {
         this.taskMapper = taskMapper;
         this.taskLogMapper = taskLogMapper;
         this.stateMachine = stateMachine;
@@ -131,6 +135,20 @@ public class GpuTaskService {
             throw new ResourceNotFoundException("任务不存在: " + taskId);
         }
         return toResponse(task);
+    }
+
+    public IPage<TaskResponse> listUserTasks(Long userId, Integer page, Integer size, Integer status) {
+        Page<GpuTask> pageParam = new Page<>(page, size);
+        LambdaQueryWrapper<GpuTask> wrapper = new LambdaQueryWrapper<GpuTask>()
+                .eq(GpuTask::getUserId, userId)
+                .orderByDesc(GpuTask::getCreatedAt);
+
+        if (status != null) {
+            wrapper.eq(GpuTask::getStatus, status);
+        }
+
+        IPage<GpuTask> taskPage = taskMapper.selectPage(pageParam, wrapper);
+        return taskPage.convert(this::toResponse);
     }
 
     private TaskResponse toResponse(GpuTask task) {

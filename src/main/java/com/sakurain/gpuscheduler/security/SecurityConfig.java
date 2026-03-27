@@ -18,9 +18,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 /**
  * Spring Security 配置类
  * 配置认证、授权、密码编码器、JWT 过滤器等
- *
  * 过滤器执行顺序：IdempotencyFilter → RateLimitFilter → JwtAuthenticationFilter → ...
- *
  * 注意：不需要手动配置 AuthenticationProvider，Spring Security 会自动检测
  * UserDetailsService 和 PasswordEncoder bean，并自动创建 DaoAuthenticationProvider
  */
@@ -71,20 +69,12 @@ public class SecurityConfig {
         http
                 // 禁用 CSRF（因为使用 JWT，不需要 CSRF 保护）
                 .csrf(AbstractHttpConfigurer::disable)
-
                 // 配置异常处理
-                .exceptionHandling(exception -> exception
-                        .authenticationEntryPoint(jwtAuthenticationEntryPoint)
-                )
-
+                .exceptionHandling(exception -> exception.authenticationEntryPoint(jwtAuthenticationEntryPoint))
                 // 配置会话管理（无状态）
-                .sessionManagement(session -> session
-                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-                )
-
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // 配置授权规则
                 .authorizeHttpRequests(auth -> auth
-                        // 公开接口（不需要认证）
                         .requestMatchers(
                                 "/api/auth/**",           // 认证相关接口（登录、刷新、登出）
                                 "/api/public/**",         // 公开接口
@@ -92,10 +82,10 @@ public class SecurityConfig {
                                 "/actuator/health",       // 健康检查
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
-                                "/swagger-ui.html"
+                                "/ws/**",
+                                "/websocket/**",
+                                "/ws/info/**"
                         ).permitAll()
-
-                        // 其他所有请求都需要认证
                         .anyRequest().authenticated()
                 )
 

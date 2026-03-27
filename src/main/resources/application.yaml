@@ -69,3 +69,9 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+
+# Telemetry push for dashboard websocket
+telemetry:
+  topic: /topic/telemetry
+  initial-delay-ms: 5000
+  push-interval-ms: 3000
