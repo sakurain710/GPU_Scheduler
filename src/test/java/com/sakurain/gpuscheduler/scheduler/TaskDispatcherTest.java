@@ -72,7 +72,7 @@ class TaskDispatcherTest {
 
     @Test
     void testDispatch_SuccessfulAllocation() {
-        when(priorityQueue.dequeue()).thenReturn(100L, null);
+        when(priorityQueue.dequeue()).thenReturn(100L, (Long) null);
         when(taskMapper.selectById(100L)).thenReturn(queuedTask);
         when(gpuAllocator.allocate(queuedTask)).thenReturn(Optional.of(idleGpu));
 
@@ -106,7 +106,7 @@ class TaskDispatcherTest {
 
     @Test
     void testDispatch_TaskNotFound() {
-        when(priorityQueue.dequeue()).thenReturn(100L, null);
+        when(priorityQueue.dequeue()).thenReturn(100L, (Long) null);
         when(taskMapper.selectById(100L)).thenReturn(null);
 
         dispatcher.dispatchOnce();
@@ -122,7 +122,7 @@ class TaskDispatcherTest {
                 .status(TaskStatus.RUNNING.getCode())
                 .build();
 
-        when(priorityQueue.dequeue()).thenReturn(100L, null);
+        when(priorityQueue.dequeue()).thenReturn(100L, (Long) null);
         when(taskMapper.selectById(100L)).thenReturn(runningTask);
 
         dispatcher.dispatchOnce();
@@ -187,7 +187,7 @@ class TaskDispatcherTest {
     }
     @Test
     void testDispatch_AllocationFailure() {
-        when(priorityQueue.dequeue()).thenReturn(100L, null);
+        when(priorityQueue.dequeue()).thenReturn(100L, (Long) null);
         when(taskMapper.selectById(100L)).thenReturn(queuedTask);
         when(gpuAllocator.allocate(queuedTask)).thenReturn(Optional.of(idleGpu));
         doThrow(new RuntimeException("Database error"))
@@ -200,7 +200,7 @@ class TaskDispatcherTest {
 
     @Test
     void testDispatch_EstimatedTimeCalculation() {
-        when(priorityQueue.dequeue()).thenReturn(100L, null);
+        when(priorityQueue.dequeue()).thenReturn(100L, (Long) null);
         when(taskMapper.selectById(100L)).thenReturn(queuedTask);
         when(gpuAllocator.allocate(queuedTask)).thenReturn(Optional.of(idleGpu));
 

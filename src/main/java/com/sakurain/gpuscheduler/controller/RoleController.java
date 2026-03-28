@@ -26,14 +26,14 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * 角色管理控制器
+ * 角色管理
  */
 @Slf4j
-@Tag(name = "Role Management", description = "Role CRUD and role-user/permission bindings")
+@Tag(name = "角色管理", description = "角色CRUD和角色-用户/权限绑定")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/roles")
-@PreAuthorize("hasAnyRole('ROLE_ADMIN')")
+@PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')")
 public class RoleController {
 
     private final RoleService roleService;
@@ -46,7 +46,7 @@ public class RoleController {
     /**
      * 创建角色
      */
-    @Operation(summary = "Create role")
+    @Operation(summary = "创建角色")
     @PostMapping
     public Result<RoleResponse> createRole(@Valid @RequestBody CreateRoleRequest request) {
         RoleResponse response = roleService.createRole(request);
@@ -56,7 +56,7 @@ public class RoleController {
     /**
      * 更新角色
      */
-    @Operation(summary = "Update role")
+    @Operation(summary = "更新角色")
     @PutMapping("/{roleId}")
     public Result<RoleResponse> updateRole(
             @PathVariable Long roleId,
@@ -68,7 +68,7 @@ public class RoleController {
     /**
      * 删除角色
      */
-    @Operation(summary = "Delete role")
+    @Operation(summary = "删除角色")
     @DeleteMapping("/{roleId}")
     public Result<Void> deleteRole(@PathVariable Long roleId) {
         roleService.deleteRole(roleId);
@@ -78,7 +78,7 @@ public class RoleController {
     /**
      * 获取角色详情
      */
-    @Operation(summary = "Get role by id")
+    @Operation(summary = "根据ID获取角色")
     @GetMapping("/{roleId}")
     public Result<RoleResponse> getRoleById(@PathVariable Long roleId) {
         RoleResponse response = roleService.getRoleById(roleId);
@@ -88,7 +88,7 @@ public class RoleController {
     /**
      * 获取所有角色列表
      */
-    @Operation(summary = "List all roles")
+    @Operation(summary = "列出所有角色")
     @GetMapping
     public Result<List<RoleResponse>> listAllRoles() {
         List<RoleResponse> response = roleService.listAllRoles();
@@ -98,7 +98,7 @@ public class RoleController {
     /**
      * 为角色分配权限
      */
-    @Operation(summary = "Assign permissions to role")
+    @Operation(summary = "为角色分配权限")
     @PostMapping("/{roleId}/permissions")
     public Result<Void> assignPermissions(
             @PathVariable Long roleId,
@@ -110,7 +110,7 @@ public class RoleController {
     /**
      * 撤销角色的权限
      */
-    @Operation(summary = "Revoke role permissions")
+    @Operation(summary = "撤销角色权限")
     @DeleteMapping("/{roleId}/permissions")
     public Result<Void> revokePermissions(
             @PathVariable Long roleId,
@@ -122,7 +122,7 @@ public class RoleController {
     /**
      * 为角色分配用户
      */
-    @Operation(summary = "Assign users to role")
+    @Operation(summary = "为角色分配用户")
     @PostMapping("/{roleId}/users")
     public Result<Void> assignUsers(
             @PathVariable Long roleId,
@@ -134,7 +134,7 @@ public class RoleController {
     /**
      * 解除角色的用户绑定
      */
-    @Operation(summary = "Unassign users from role")
+    @Operation(summary = "解除角色用户绑定")
     @DeleteMapping("/{roleId}/users")
     public Result<Void> unassignUsers(
             @PathVariable Long roleId,

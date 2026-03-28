@@ -28,14 +28,14 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 用户管理控制器
+ * 用户管理
  */
 @Slf4j
-@Tag(name = "User Management", description = "User CRUD and role assignment")
+@Tag(name = "用户管理", description = "用户CRUD和角色分配")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/users")
-@PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')")
+@PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')")
 public class UserController {
 
     private final UserService userService;
@@ -48,7 +48,7 @@ public class UserController {
     /**
      * 创建用户
      */
-    @Operation(summary = "Create user")
+    @Operation(summary = "创建用户")
     @PostMapping
     public Result<UserResponse> createUser(@Valid @RequestBody CreateUserRequest request) {
         UserResponse response = userService.createUser(request);
@@ -58,7 +58,7 @@ public class UserController {
     /**
      * 更新用户
      */
-    @Operation(summary = "Update user")
+    @Operation(summary = "更新用户")
     @PutMapping("/{userId}")
     public Result<UserResponse> updateUser(
             @PathVariable Long userId,
@@ -70,7 +70,7 @@ public class UserController {
     /**
      * 删除用户
      */
-    @Operation(summary = "Delete user")
+    @Operation(summary = "删除用户")
     @DeleteMapping("/{userId}")
     public Result<Void> deleteUser(@PathVariable Long userId) {
         userService.deleteUser(userId);
@@ -80,7 +80,7 @@ public class UserController {
     /**
      * 获取用户详情
      */
-    @Operation(summary = "Get user by id")
+    @Operation(summary = "根据ID获取用户")
     @GetMapping("/{userId}")
     public Result<UserResponse> getUserById(@PathVariable Long userId) {
         UserResponse response = userService.getUserById(userId);
@@ -90,7 +90,7 @@ public class UserController {
     /**
      * 分页查询用户列表
      */
-    @Operation(summary = "List users", description = "Supports pagination and query by username/email/status")
+    @Operation(summary = "列出用户", description = "支持分页和按用户名/邮箱/状态查询")
     @GetMapping
     public Result<IPage<UserResponse>> listUsers(
             @Parameter(description = "Page number, starts from 1") @RequestParam(defaultValue = "1") Integer page,
@@ -105,7 +105,7 @@ public class UserController {
     /**
      * 为用户分配角色
      */
-    @Operation(summary = "Assign roles to user")
+    @Operation(summary = "为用户分配角色")
     @PostMapping("/{userId}/roles")
     public Result<Void> assignRoles(
             @PathVariable Long userId,

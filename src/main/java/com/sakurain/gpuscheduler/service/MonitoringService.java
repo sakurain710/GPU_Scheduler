@@ -20,7 +20,10 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -57,6 +60,7 @@ public class MonitoringService {
      */
     public TaskMetrics getTaskMetrics() {
         List<GpuTask> allTasks = gpuTaskMapper.selectList(null);
+        LocalDateTime now = LocalDateTime.now();
 
         // 各状态任务数
         Map<String, Long> countByStatus = new LinkedHashMap<>();
@@ -68,13 +72,33 @@ public class MonitoringService {
                         t -> TaskStatus.fromCode(t.getStatus()).getLabel(),
                         Collectors.counting())));
 
+        Map<String, Long> queueLengthByPriority = allTasks.stream()
+                .filter(t -> t.getStatus() == TaskStatus.QUEUED.getCode())
+                .collect(Collectors.groupingBy(
+                        t -> priorityLabel(t.getBasePriority()),
+                        LinkedHashMap::new,
+                        Collectors.counting()));
+
         // 各优先级平均等待时间（仅 QUEUED 任务，等待时间 = now - enqueueAt）
         Map<String, Double> avgWaitByPriority = allTasks.stream()
                 .filter(t -> t.getStatus() == TaskStatus.QUEUED.getCode() && t.getEnqueueAt() != null)
                 .collect(Collectors.groupingBy(
                         t -> priorityLabel(t.getBasePriority()),
+                        LinkedHashMap::new,
                         Collectors.averagingDouble(t ->
-                                Duration.between(t.getEnqueueAt(), LocalDateTime.now()).toSeconds())));
+                                Duration.between(t.getEnqueueAt(), now).toSeconds())));
+
+        Double avgDispatchLatency = allTasks.stream()
+                .filter(t -> t.getEnqueueAt() != null && t.getDispatchedAt() != null)
+                .mapToLong(t -> Duration.between(t.getEnqueueAt(), t.getDispatchedAt()).toSeconds())
+                .average()
+                .orElse(0.0);
+
+        Double avgTurnaround = allTasks.stream()
+                .filter(t -> t.getEnqueueAt() != null && t.getFinishedAt() != null)
+                .mapToLong(t -> Duration.between(t.getEnqueueAt(), t.getFinishedAt()).toSeconds())
+                .average()
+                .orElse(0.0);
 
         // 终态任务：完成率 / 失败率
         long completed = countByStatus.getOrDefault("Completed", 0L);
@@ -99,8 +123,11 @@ public class MonitoringService {
 
         return TaskMetrics.builder()
                 .queueLength(priorityQueue.size())
+                .queueLengthByPriority(queueLengthByPriority)
                 .taskCountByStatus(countByStatus)
                 .avgWaitSecondsByPriority(avgWaitByPriority)
+                .avgDispatchLatencySeconds(avgDispatchLatency)
+                .avgTurnaroundSeconds(avgTurnaround)
                 .completionRate(completionRate)
                 .failureRate(failureRate)
                 .failureReasons(failureReasons)
@@ -133,7 +160,6 @@ public class MonitoringService {
         // VRAM 碎片化：对每个 BUSY GPU，查找其当前任务的 minMemoryGb，
         // fragmentation = 1 - (minMemoryGb / gpu.memoryGb)
         // 值越高说明分配越浪费（大 GPU 跑小任务）
-        Map<Long, BigDecimal> fragmentation = new LinkedHashMap<>();
         List<GpuTask> runningTasks = gpuTaskMapper.selectList(
                 new LambdaQueryWrapper<GpuTask>()
                         .eq(GpuTask::getStatus, TaskStatus.RUNNING.getCode())
@@ -142,21 +168,34 @@ public class MonitoringService {
         Map<Long, GpuTask> taskByGpuId = runningTasks.stream()
                 .collect(Collectors.toMap(GpuTask::getGpuId, t -> t, (a, b) -> a));
 
+        Map<Long, BigDecimal> usedMemory = new LinkedHashMap<>();
+        Map<Long, BigDecimal> remainingMemory = new LinkedHashMap<>();
+        Map<Long, BigDecimal> fragmentation = new LinkedHashMap<>();
+        Map<Long, Long> idleSeconds = new LinkedHashMap<>();
+
         for (Gpu gpu : allGpus) {
-            if (gpu.getStatus().equals(GpuStatus.BUSY.getCode())) {
-                GpuTask task = taskByGpuId.get(gpu.getId());
-                if (task != null && task.getMinMemoryGb() != null
-                        && gpu.getMemoryGb().compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal ratio = BigDecimal.ONE.subtract(
-                            task.getMinMemoryGb().divide(gpu.getMemoryGb(), 4, RoundingMode.HALF_UP));
-                    fragmentation.put(gpu.getId(), ratio.max(BigDecimal.ZERO));
-                }
+            GpuTask runningTask = taskByGpuId.get(gpu.getId());
+            BigDecimal used = runningTask != null && runningTask.getMinMemoryGb() != null
+                    ? runningTask.getMinMemoryGb()
+                    : BigDecimal.ZERO;
+            usedMemory.put(gpu.getId(), used);
+
+            BigDecimal remain = gpu.getMemoryGb().subtract(used);
+            if (remain.compareTo(BigDecimal.ZERO) < 0) {
+                remain = BigDecimal.ZERO;
             }
-        }
+            remainingMemory.put(gpu.getId(), remain);
+
+            if (gpu.getStatus().equals(GpuStatus.BUSY.getCode())
+                    && gpu.getMemoryGb().compareTo(BigDecimal.ZERO) > 0
+                    && runningTask != null
+                    && runningTask.getMinMemoryGb() != null) {
+                BigDecimal ratio = BigDecimal.ONE.subtract(
+                        runningTask.getMinMemoryGb().divide(gpu.getMemoryGb(), 4, RoundingMode.HALF_UP));
+                fragmentation.put(gpu.getId(), ratio.max(BigDecimal.ZERO));
+            }
 
         // 空闲时长：对每个 IDLE GPU，查找其最近一次完成任务的 finishedAt
-        Map<Long, Long> idleSeconds = new LinkedHashMap<>();
-        for (Gpu gpu : allGpus) {
             if (gpu.getStatus().equals(GpuStatus.IDLE.getCode())) {
                 GpuTask lastTask = gpuTaskMapper.selectOne(
                         new LambdaQueryWrapper<GpuTask>()
@@ -175,6 +214,8 @@ public class MonitoringService {
                 .total(total)
                 .countByStatus(countByStatus)
                 .utilizationRate(utilizationRate)
+                .usedMemoryGbByGpu(usedMemory)
+                .remainingMemoryGbByGpu(remainingMemory)
                 .vramFragmentationByGpu(fragmentation)
                 .idleSecondsByGpu(idleSeconds)
                 .build();

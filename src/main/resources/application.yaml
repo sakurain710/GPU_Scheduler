@@ -75,3 +75,11 @@ telemetry:
   topic: /topic/telemetry
   initial-delay-ms: 5000
   push-interval-ms: 3000
+
+# Task submission policy (approval + quota)
+task-submission:
+  high-priority-threshold: 9
+  max-active-tasks-per-user: 3
+  approver-roles:
+    - ROLE_ADMIN
+    - ROLE_SUPER_ADMIN

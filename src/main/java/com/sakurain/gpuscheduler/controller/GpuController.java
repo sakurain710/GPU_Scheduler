@@ -29,7 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 /**
- * GPU资源管理控制器
+ * GPU资源管理
  * <p>
  * 路由：
  *   GET    /api/gpu          — 列出所有GPU（所有认证用户）
@@ -41,7 +41,7 @@ import java.util.Map;
  *   GET    /api/gpu/metrics  — 利用率统计（仅ADMIN）
  */
 @Slf4j
-@Tag(name = "GPU Management", description = "GPU registration, query, status update and metrics")
+@Tag(name = "GPU资源管理", description = "GPU注册、查询、状态更新和指标")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/gpu")
@@ -56,7 +56,7 @@ public class GpuController {
     /**
      * 列出所有GPU，支持按状态过滤和分页
      */
-    @Operation(summary = "List GPUs", description = "Supports pagination and optional status filter")
+    @Operation(summary = "列出GPU", description = "支持分页和可选状态过滤")
     @GetMapping
     public Result<IPage<GpuResponse>> listGpus(
             @Parameter(description = "Page number, starts from 1") @RequestParam(defaultValue = "1") Integer page,
@@ -69,7 +69,7 @@ public class GpuController {
     /**
      * 查询GPU详情
      */
-    @Operation(summary = "Get GPU by id")
+    @Operation(summary = "根据ID获取GPU")
     @GetMapping("/{gpuId}")
     public Result<GpuResponse> getGpu(@PathVariable Long gpuId) {
         return Result.success(gpuService.getGpu(gpuId));
@@ -78,9 +78,9 @@ public class GpuController {
     /**
      * 注册新GPU（仅ADMIN）
      */
-    @Operation(summary = "Register GPU", description = "Admin only")
+    @Operation(summary = "注册GPU", description = "仅管理员")
     @PostMapping
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public Result<GpuResponse> registerGpu(@Valid @RequestBody RegisterGpuRequest request) {
         Long operatorId = getCurrentUserId();
         GpuResponse response = gpuService.registerGpu(request, operatorId);
@@ -90,9 +90,9 @@ public class GpuController {
     /**
      * 更新GPU状态（仅ADMIN）
      */
-    @Operation(summary = "Update GPU status", description = "Admin only")
+    @Operation(summary = "更新GPU状态", description = "仅管理员")
     @PutMapping("/{gpuId}/status")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public Result<GpuResponse> updateStatus(
             @PathVariable Long gpuId,
             @Valid @RequestBody UpdateGpuStatusRequest request) {
@@ -103,9 +103,9 @@ public class GpuController {
     /**
      * 删除GPU（仅ADMIN）
      */
-    @Operation(summary = "Delete GPU", description = "Admin only")
+    @Operation(summary = "删除GPU", description = "仅管理员")
     @DeleteMapping("/{gpuId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public Result<Void> deleteGpu(@PathVariable Long gpuId) {
         gpuService.deleteGpu(gpuId);
         return Result.success();
@@ -114,9 +114,9 @@ public class GpuController {
     /**
      * GPU健康检查 — 各状态数量统计（仅ADMIN）
      */
-    @Operation(summary = "GPU health summary", description = "Admin only")
+    @Operation(summary = "GPU健康摘要", description = "仅管理员")
     @GetMapping("/health")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public Result<Map<String, Long>> healthCheck() {
         return Result.success(gpuService.healthCheck());
     }
@@ -124,9 +124,9 @@ public class GpuController {
     /**
      * GPU利用率统计（仅ADMIN）
      */
-    @Operation(summary = "GPU utilization metrics", description = "Admin only")
+    @Operation(summary = "GPU利用率指标", description = "仅管理员")
     @GetMapping("/metrics")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public Result<Map<String, Object>> utilizationMetrics() {
         return Result.success(gpuService.utilizationMetrics());
     }

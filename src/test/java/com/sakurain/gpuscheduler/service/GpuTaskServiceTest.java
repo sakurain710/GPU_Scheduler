@@ -1,5 +1,6 @@
 package com.sakurain.gpuscheduler.service;
 
+import com.sakurain.gpuscheduler.config.TaskSubmissionPolicyConfig;
 import com.sakurain.gpuscheduler.dto.task.SubmitTaskRequest;
 import com.sakurain.gpuscheduler.dto.task.TaskResponse;
 import com.sakurain.gpuscheduler.entity.GpuTask;
@@ -47,10 +48,12 @@ class GpuTaskServiceTest {
 
     private final TaskStateMachine stateMachine = new TaskStateMachine();
 
+    private final TaskSubmissionPolicyConfig submissionPolicy = new TaskSubmissionPolicyConfig();
+
     @BeforeEach
     void setUp() {
         // 用真实的状态机替换mock
-        gpuTaskService = new GpuTaskService(taskMapper, taskLogMapper, stateMachine, priorityQueue, agingScheduler);
+        gpuTaskService = new GpuTaskService(taskMapper, taskLogMapper, stateMachine, priorityQueue, agingScheduler, submissionPolicy);
 
         // Mock aging scheduler to return basePriority for simplicity (lenient to avoid UnnecessaryStubbingException)
         lenient().when(agingScheduler.calculateEffectivePriority(any(GpuTask.class)))

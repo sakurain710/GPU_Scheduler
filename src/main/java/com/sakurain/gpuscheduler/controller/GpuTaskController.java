@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.sakurain.gpuscheduler.dto.Result;
 import com.sakurain.gpuscheduler.dto.task.SubmitTaskRequest;
 import com.sakurain.gpuscheduler.dto.task.TaskResponse;
-import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.security.CustomUserDetails;
 import com.sakurain.gpuscheduler.service.GpuTaskService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -25,10 +24,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * GPU任务控制器
+ * GPU任务管理
  */
 @Slf4j
-@Tag(name = "Task Management", description = "Submit, query and cancel GPU tasks")
+@Tag(name = "GPU任务管理", description = "提交、查询和取消GPU任务")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/task")
@@ -44,33 +43,38 @@ public class GpuTaskController {
     /**
      * 提交GPU计算任务
      */
-    @Operation(summary = "Submit GPU task")
+    @Operation(summary = "提交GPU任务")
     @PostMapping("/submit")
     public Result<TaskResponse> submitTask(@Valid @RequestBody SubmitTaskRequest request) {
-        Long userId = getCurrentUserId();
-        TaskResponse response = gpuTaskService.submitTask(request, userId);
+        CustomUserDetails currentUser = getCurrentUserDetails();
+        TaskResponse response = gpuTaskService.submitTask(
+                request,
+                currentUser.getUserId(),
+                currentUser.getRoleCodes()
+        );
         return Result.success("任务提交成功", response);
     }
 
     /**
      * 查询任务详情
      */
-    @Operation(summary = "Get task detail")
+    @Operation(summary = "获取任务详情")
     @GetMapping("/{taskId}")
     public Result<TaskResponse> getTask(@PathVariable Long taskId) {
-        TaskResponse response = gpuTaskService.getTask(taskId);
+        CustomUserDetails currentUser = getCurrentUserDetails();
+        TaskResponse response = gpuTaskService.getTask(taskId, currentUser.getUserId(), currentUser.getRoleCodes());
         return Result.success(response);
     }
 
     /**
      * 用户任务列表
      */
-    @Operation(summary = "List current user's tasks", description = "Supports pagination and optional status filter")
+    @Operation(summary = "列出当前用户的任务", description = "支持分页和可选状态过滤")
     @GetMapping("/my")
     public Result<IPage<TaskResponse>> listMyTasks(
-            @Parameter(description = "Page number, starts from 1") @RequestParam(defaultValue = "1") Integer page,
-            @Parameter(description = "Page size") @RequestParam(defaultValue = "10") Integer size,
-            @Parameter(description = "Task status code filter") @RequestParam(required = false) Integer status) {
+            @Parameter(description = "页码，从1开始") @RequestParam(defaultValue = "1") Integer page,
+            @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") Integer size,
+            @Parameter(description = "任务状态码过滤") @RequestParam(required = false) Integer status) {
         Long userId = getCurrentUserId();
         return Result.success(gpuTaskService.listUserTasks(userId, page, size, status));
     }
@@ -78,17 +82,20 @@ public class GpuTaskController {
     /**
      * 取消任务
      */
-    @Operation(summary = "Cancel task")
+    @Operation(summary = "取消任务")
     @PostMapping("/{taskId}/cancel")
     public Result<Void> cancelTask(@PathVariable Long taskId) {
-        Long userId = getCurrentUserId();
-        gpuTaskService.transition(taskId, TaskStatus.CANCELLED, null, userId);
+        CustomUserDetails currentUser = getCurrentUserDetails();
+        gpuTaskService.cancelTask(taskId, currentUser.getUserId(), currentUser.getRoleCodes());
         return Result.success();
     }
 
     private Long getCurrentUserId() {
+        return getCurrentUserDetails().getUserId();
+    }
+
+    private CustomUserDetails getCurrentUserDetails() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        CustomUserDetails userDetails = (CustomUserDetails) auth.getPrincipal();
-        return userDetails.getUserId();
+        return (CustomUserDetails) auth.getPrincipal();
     }
 }

@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -39,6 +40,8 @@ public class GpuAllocator {
      *
      * @param task 待分配的任务
      * @return 分配的GPU，如果没有可用GPU则返回Optional.empty()
+     * Best-Fit by minimum VRAM waste ratio:
+     * waste = (gpu.memory - task.minMemory) / gpu. Memory
      */
     public Optional<Gpu> allocate(GpuTask task) {
         if (task.getMinMemoryGb() == null) {
@@ -49,8 +52,7 @@ public class GpuAllocator {
         // 查询所有IDLE状态且显存满足需求的GPU
         QueryWrapper<Gpu> query = new QueryWrapper<>();
         query.eq("status", GpuStatus.IDLE.getCode())
-                .ge("memory_gb", task.getMinMemoryGb())
-                .orderByAsc("memory_gb");  // BestFit: 显存升序，最小的优先
+                .ge("memory_gb", task.getMinMemoryGb());
 
         List<Gpu> candidates = gpuMapper.selectList(query);
 
@@ -60,11 +62,16 @@ public class GpuAllocator {
             return Optional.empty();
         }
 
+        Comparator<Gpu> byWasteThenMemory = Comparator
+                .comparing((Gpu g) -> calculateWasteRatio(task.getMinMemoryGb(), g.getMemoryGb()))
+                .thenComparing(Gpu::getMemoryGb);
         // BestFit: 选择显存最小的GPU（已按memory_gb升序排序）
-        Gpu selected = candidates.get(0);
-        log.info("BestFit分配: 任务{}分配到GPU[{}] {}, 显存{}GB (需求{}GB)",
+        Gpu selected = candidates.stream().min(byWasteThenMemory).orElse(null);
+
+        BigDecimal wasteRatio = calculateWasteRatio(task.getMinMemoryGb(), selected.getMemoryGb());
+        log.info("BestFit分配: 任务={} -> gpuId={}, model={}, 显存={}GB, 需求={}GB, 碎片率={}",
                 task.getId(), selected.getId(), selected.getName(),
-                selected.getMemoryGb(), task.getMinMemoryGb());
+                selected.getMemoryGb(), task.getMinMemoryGb(), wasteRatio);
 
         return Optional.of(selected);
     }
@@ -105,5 +112,16 @@ public class GpuAllocator {
             return false;
         }
         return countAvailableGpus(task.getMinMemoryGb()) > 0;
+    }
+
+    private BigDecimal calculateWasteRatio(BigDecimal required, BigDecimal totalMemory) {
+        if (required == null || totalMemory == null || totalMemory.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ONE;
+        }
+        BigDecimal remain = totalMemory.subtract(required);
+        if (remain.compareTo(BigDecimal.ZERO) < 0) {
+            return BigDecimal.ONE;
+        }
+        return remain.divide(totalMemory, 6, RoundingMode.HALF_UP);
     }
 }

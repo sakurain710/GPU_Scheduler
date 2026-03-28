@@ -3,11 +3,13 @@ package com.sakurain.gpuscheduler.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.sakurain.gpuscheduler.config.TaskSubmissionPolicyConfig;
 import com.sakurain.gpuscheduler.dto.task.SubmitTaskRequest;
 import com.sakurain.gpuscheduler.dto.task.TaskResponse;
 import com.sakurain.gpuscheduler.entity.GpuTask;
 import com.sakurain.gpuscheduler.entity.GpuTaskLog;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
+import com.sakurain.gpuscheduler.exception.BusinessException;
 import com.sakurain.gpuscheduler.exception.ResourceNotFoundException;
 import com.sakurain.gpuscheduler.mapper.GpuTaskLogMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
@@ -17,6 +19,8 @@ import com.sakurain.gpuscheduler.scheduler.TaskStateMachine;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 /**
  * GPU任务服务 — 提交、入队、状态转换
@@ -30,17 +34,20 @@ public class GpuTaskService {
     private final TaskStateMachine stateMachine;
     private final TaskPriorityQueue priorityQueue;
     private final TaskAgingScheduler agingScheduler;
+    private final TaskSubmissionPolicyConfig submissionPolicy;
 
     public GpuTaskService(GpuTaskMapper taskMapper,
                           GpuTaskLogMapper taskLogMapper,
                           TaskStateMachine stateMachine,
                           TaskPriorityQueue priorityQueue,
-                          TaskAgingScheduler agingScheduler) {
+                          TaskAgingScheduler agingScheduler,
+                          TaskSubmissionPolicyConfig submissionPolicy) {
         this.taskMapper = taskMapper;
         this.taskLogMapper = taskLogMapper;
         this.stateMachine = stateMachine;
         this.priorityQueue = priorityQueue;
         this.agingScheduler = agingScheduler;
+        this.submissionPolicy = submissionPolicy;
     }
 
     /**
@@ -48,6 +55,13 @@ public class GpuTaskService {
      */
     @Transactional
     public TaskResponse submitTask(SubmitTaskRequest request, Long userId) {
+        return submitTask(request, userId, List.of());
+    }
+
+    @Transactional
+    public TaskResponse submitTask(SubmitTaskRequest request, Long userId, List<String> roleCodes) {
+        validateSubmissionPolicy(request, userId, roleCodes);
+
         // 1. 构建实体，初始状态 PENDING
         GpuTask task = GpuTask.builder()
                 .userId(userId)
@@ -123,7 +137,7 @@ public class GpuTaskService {
                 .build();
         taskLogMapper.insert(logEntry);
 
-        log.info("任务状态转换: taskId={}, {} → {}", taskId, from.getLabel(), target.getLabel());
+        log.info("任务状态转换: taskId={}, {} -> {}", taskId, from.getLabel(), target.getLabel());
     }
 
     /**
@@ -135,6 +149,25 @@ public class GpuTaskService {
             throw new ResourceNotFoundException("任务不存在: " + taskId);
         }
         return toResponse(task);
+    }
+
+    public TaskResponse getTask(Long taskId, Long requesterId, List<String> roleCodes) {
+        GpuTask task = taskMapper.selectById(taskId);
+        if (task == null) {
+            throw new ResourceNotFoundException("Task not found: " + taskId);
+        }
+        validateTaskOwnerOrApprover(task, requesterId, roleCodes);
+        return toResponse(task);
+    }
+
+    @Transactional
+    public void cancelTask(Long taskId, Long requesterId, List<String> roleCodes) {
+        GpuTask task = taskMapper.selectById(taskId);
+        if (task == null) {
+            throw new ResourceNotFoundException("Task not found: " + taskId);
+        }
+        validateTaskOwnerOrApprover(task, requesterId, roleCodes);
+        transition(taskId, TaskStatus.CANCELLED, null, requesterId);
     }
 
     public IPage<TaskResponse> listUserTasks(Long userId, Integer page, Integer size, Integer status) {
@@ -149,6 +182,45 @@ public class GpuTaskService {
 
         IPage<GpuTask> taskPage = taskMapper.selectPage(pageParam, wrapper);
         return taskPage.convert(this::toResponse);
+    }
+
+    private void validateSubmissionPolicy(SubmitTaskRequest request, Long userId, List<String> roleCodes) {
+        int priority = request.getBasePriority() != null ? request.getBasePriority() : 5;
+        boolean hasApprovalRole = roleCodes != null
+                && roleCodes.stream().anyMatch(submissionPolicy.getApproverRoles()::contains);
+
+        if (priority >= submissionPolicy.getHighPriorityThreshold() && !hasApprovalRole) {
+            throw new BusinessException(
+                    "TASK_APPROVAL_REQUIRED",
+                    "High-priority tasks require ADMIN approval role",
+                    403
+            );
+        }
+
+        if (!hasApprovalRole) {
+            Long activeTaskCount = taskMapper.selectCount(new LambdaQueryWrapper<GpuTask>()
+                    .eq(GpuTask::getUserId, userId)
+                    .in(GpuTask::getStatus,
+                            TaskStatus.PENDING.getCode(),
+                            TaskStatus.QUEUED.getCode(),
+                            TaskStatus.RUNNING.getCode()));
+
+            if (activeTaskCount != null && activeTaskCount >= submissionPolicy.getMaxActiveTasksPerUser()) {
+                throw new BusinessException(
+                        "TASK_QUOTA_EXCEEDED",
+                        "Active task quota exceeded, please wait for running tasks to finish",
+                        429
+                );
+            }
+        }
+    }
+
+    private void validateTaskOwnerOrApprover(GpuTask task, Long requesterId, List<String> roleCodes) {
+        boolean hasApprovalRole = roleCodes != null
+                && roleCodes.stream().anyMatch(submissionPolicy.getApproverRoles()::contains);
+        if (!hasApprovalRole && !task.getUserId().equals(requesterId)) {
+            throw new BusinessException("TASK_FORBIDDEN", "No permission to access this task", 403);
+        }
     }
 
     private TaskResponse toResponse(GpuTask task) {

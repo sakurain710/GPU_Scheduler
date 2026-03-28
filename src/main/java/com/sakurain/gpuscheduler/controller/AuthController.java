@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 认证控制器
  */
 @Slf4j
-@Tag(name = "Authentication", description = "Login, token refresh, logout, and current user info")
+@Tag(name = "认证控制器", description = "登录, token刷新, 登出, 获取当前用户信息")
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
@@ -46,7 +46,7 @@ public class AuthController {
     /**
      * 用户登录
      */
-    @Operation(summary = "User login", description = "Returns access token and refresh token")
+    @Operation(summary = "用户登录", description = "使用用户名和密码进行登录，成功后返回访问令牌和刷新令牌")
     @PostMapping("/login")
     public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         LoginResponse response = authService.login(request);
@@ -56,7 +56,7 @@ public class AuthController {
     /**
      * 刷新令牌
      */
-    @Operation(summary = "Refresh access token", description = "Use refresh token to issue a new token pair")
+    @Operation(summary = "刷新访问令牌", description = "使用刷新令牌颁发新的令牌对")
     @PostMapping("/refresh")
     public Result<LoginResponse> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
         LoginResponse response = authService.refreshToken(request.getRefreshToken());
@@ -68,8 +68,8 @@ public class AuthController {
      * 将当前访问令牌和刷新令牌加入黑名单
      */
     @Operation(
-            summary = "User logout",
-            description = "Blacklist access token and optional refresh token",
+            summary = "用户登出",
+            description = "将访问令牌和可选的刷新令牌加入黑名单",
             security = @SecurityRequirement(name = "bearerAuth")
     )
     @PostMapping("/logout")
@@ -86,8 +86,8 @@ public class AuthController {
      * 获取当前登录用户信息
      */
     @Operation(
-            summary = "Get current user",
-            description = "Returns profile info of the current authenticated user",
+            summary = "获取当前用户",
+            description = "返回当前认证用户的个人资料信息",
             security = @SecurityRequirement(name = "bearerAuth")
     )
     @GetMapping("/me")

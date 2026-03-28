@@ -2,8 +2,10 @@ package com.sakurain.gpuscheduler.util;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -13,10 +15,21 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class RedisLockService {
 
+    private static final String UNLOCK_SCRIPT =
+            "if redis.call('get', KEYS[1]) == ARGV[1] then " +
+            "  return redis.call('del', KEYS[1]) " +
+            "else " +
+            "  return 0 " +
+            "end";
+
     private final RedisTemplate<String, String> redisTemplate;
+    private final DefaultRedisScript<Long> unlockRedisScript;
 
     public RedisLockService(RedisTemplate<String, String> redisTemplate) {
         this.redisTemplate = redisTemplate;
+        this.unlockRedisScript = new DefaultRedisScript<>();
+        this.unlockRedisScript.setScriptText(UNLOCK_SCRIPT);
+        this.unlockRedisScript.setResultType(Long.class);
     }
 
     /**
@@ -38,11 +51,12 @@ public class RedisLockService {
      *
      * @param key   锁的key
      * @param value 锁的value（用于验证是否是自己持有的锁）
+     * Atomic unlock: delete only when current lock value equals owner value.
      */
     public void unlock(String key, String value) {
-        String currentValue = redisTemplate.opsForValue().get(key);
-        if (value.equals(currentValue)) {
-            redisTemplate.delete(key);
+        Long released = redisTemplate.execute(unlockRedisScript, Collections.singletonList(key), value);
+        if (released == 0) {
+            log.debug("跳过释放锁，锁未拥有或已过期: key={}", key);
         }
     }
 }
