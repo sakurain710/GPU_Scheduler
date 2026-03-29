@@ -38,4 +38,9 @@ public class SchedulerConfig {
      * 是否启用老化机制
      */
     private boolean agingEnabled = true;
+
+    /**
+     * 是否启用定时任务（调度/重试/老化刷新等）。
+     */
+    private boolean scheduledJobsEnabled = true;
 }

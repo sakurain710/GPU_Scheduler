@@ -126,7 +126,7 @@ class StateMachineRedisIT {
     @ParameterizedTest(name = "终态 {0} → {1} 应抛出异常")
     @CsvSource({
         "COMPLETED, RUNNING",
-        "FAILED,    QUEUED",
+        "FAILED,    RUNNING",
         "CANCELLED, RUNNING",
         "COMPLETED, QUEUED",
         "FAILED,    COMPLETED"
@@ -153,7 +153,7 @@ class StateMachineRedisIT {
     @CsvSource({
         "PENDING, RUNNING",    // 必须先 QUEUED
         "PENDING, COMPLETED",  // 不允许跳转
-        "RUNNING, QUEUED",     // 不可回退
+        "RUNNING, CANCELLED",     // 不可回退
         "RUNNING, PENDING"     // 不可回退
     })
     void transition_invalidNonTerminalTransition_throws(String from, String to) {

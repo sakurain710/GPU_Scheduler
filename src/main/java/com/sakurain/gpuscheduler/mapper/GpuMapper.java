@@ -26,4 +26,22 @@ public interface GpuMapper extends BaseMapper<Gpu> {
     int tryMarkIdle(@Param("gpuId") Long gpuId,
                     @Param("busyStatus") Integer busyStatus,
                     @Param("idleStatus") Integer idleStatus);
+
+    /**
+     * 原子下线GPU：仅当当前状态为BUSY时更新为OFFLINE。
+     */
+    @Update("UPDATE gpu SET status = #{offlineStatus}, updated_at = NOW() " +
+            "WHERE id = #{gpuId} AND status = #{busyStatus} AND deleted_at IS NULL")
+    int tryMarkOfflineFromBusy(@Param("gpuId") Long gpuId,
+                               @Param("busyStatus") Integer busyStatus,
+                               @Param("offlineStatus") Integer offlineStatus);
+
+    /**
+     * 原子上线GPU：仅当当前状态为OFFLINE时恢复为IDLE。
+     */
+    @Update("UPDATE gpu SET status = #{idleStatus}, updated_at = NOW() " +
+            "WHERE id = #{gpuId} AND status = #{offlineStatus} AND deleted_at IS NULL")
+    int tryMarkIdleFromOffline(@Param("gpuId") Long gpuId,
+                               @Param("offlineStatus") Integer offlineStatus,
+                               @Param("idleStatus") Integer idleStatus);
 }

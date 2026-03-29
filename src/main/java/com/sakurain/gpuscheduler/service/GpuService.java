@@ -10,6 +10,7 @@ import com.sakurain.gpuscheduler.enums.GpuStatus;
 import com.sakurain.gpuscheduler.exception.ResourceNotFoundException;
 import com.sakurain.gpuscheduler.mapper.GpuMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
+import com.sakurain.gpuscheduler.util.PaginationUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -69,7 +70,10 @@ public class GpuService {
      * 分页查询GPU列表，支持按状态过滤
      */
     public IPage<GpuResponse> listGpus(Integer page, Integer size, Integer status) {
-        Page<Gpu> pageParam = new Page<>(page, size);
+        Page<Gpu> pageParam = new Page<>(
+                PaginationUtils.normalizePage(page),
+                PaginationUtils.normalizeSize(size, 20, 200)
+        );
         LambdaQueryWrapper<Gpu> query = new LambdaQueryWrapper<Gpu>()
                 .orderByAsc(Gpu::getId);
         if (status != null) {

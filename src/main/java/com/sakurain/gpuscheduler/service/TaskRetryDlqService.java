@@ -5,6 +5,7 @@ import com.sakurain.gpuscheduler.entity.GpuTask;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,8 @@ public class TaskRetryDlqService {
     private final TaskRetryPolicyConfig retryPolicy;
     private final GpuTaskMapper taskMapper;
     private final GpuTaskService taskService;
+    @Value("${scheduler.scheduled-jobs-enabled:true}")
+    private boolean scheduledJobsEnabled;
 
     public TaskRetryDlqService(RedisTemplate<String, String> redisTemplate,
                                TaskRetryPolicyConfig retryPolicy,
@@ -66,7 +69,7 @@ public class TaskRetryDlqService {
      */
     @Scheduled(fixedDelayString = "${task-retry.scan-interval-ms:5000}")
     public void processScheduledRetries() {
-        if (!retryPolicy.isEnabled()) {
+        if (!scheduledJobsEnabled || !retryPolicy.isEnabled()) {
             return;
         }
 

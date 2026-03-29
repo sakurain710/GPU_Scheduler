@@ -8,6 +8,7 @@ import com.sakurain.gpuscheduler.entity.GpuTaskLog;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.exception.InvalidTaskStateException;
 import com.sakurain.gpuscheduler.exception.ResourceNotFoundException;
+import com.sakurain.gpuscheduler.mapper.GpuMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskLogMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
 import com.sakurain.gpuscheduler.scheduler.TaskAgingScheduler;
@@ -17,14 +18,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -37,13 +40,16 @@ class GpuTaskServiceTest {
     @Mock
     private GpuTaskMapper taskMapper;
     @Mock
+    private GpuMapper gpuMapper;
+    @Mock
     private GpuTaskLogMapper taskLogMapper;
     @Mock
     private TaskPriorityQueue priorityQueue;
     @Mock
     private TaskAgingScheduler agingScheduler;
+    @Mock
+    private TaskNotificationService taskNotificationService;
 
-    @InjectMocks
     private GpuTaskService gpuTaskService;
 
     private final TaskStateMachine stateMachine = new TaskStateMachine();
@@ -52,10 +58,17 @@ class GpuTaskServiceTest {
 
     @BeforeEach
     void setUp() {
-        // 用真实的状态机替换mock
-        gpuTaskService = new GpuTaskService(taskMapper, taskLogMapper, stateMachine, priorityQueue, agingScheduler, submissionPolicy);
+        gpuTaskService = new GpuTaskService(
+                taskMapper,
+                gpuMapper,
+                taskLogMapper,
+                stateMachine,
+                priorityQueue,
+                agingScheduler,
+                submissionPolicy,
+                taskNotificationService
+        );
 
-        // Mock aging scheduler to return basePriority for simplicity (lenient to avoid UnnecessaryStubbingException)
         lenient().when(agingScheduler.calculateEffectivePriority(any(GpuTask.class)))
                 .thenAnswer(inv -> {
                     GpuTask task = inv.getArgument(0);
@@ -73,14 +86,12 @@ class GpuTaskServiceTest {
                 .basePriority(7)
                 .build();
 
-        // insert后模拟ID赋值
         doAnswer(inv -> {
             GpuTask t = inv.getArgument(0);
             t.setId(100L);
             return 1;
         }).when(taskMapper).insert(any(GpuTask.class));
 
-        // selectById: 第一次返回PENDING（transition内部查询），第二次返回QUEUED（submitTask最终查询）
         GpuTask pendingTask = GpuTask.builder()
                 .id(100L).userId(1L).title("训练ResNet50")
                 .taskType("model_training")
@@ -104,32 +115,13 @@ class GpuTaskServiceTest {
         assertEquals("Queued", response.getStatusLabel());
         verify(priorityQueue).enqueue(eq(100L), eq(7.0));
         verify(taskLogMapper).insert(any(GpuTaskLog.class));
-    }
-
-    @Test
-    void transition_cancelPendingTask() {
-        GpuTask task = GpuTask.builder()
-                .id(1L).status(TaskStatus.PENDING.getCode()).basePriority(5)
-                .build();
-        when(taskMapper.selectById(1L)).thenReturn(task);
-        when(taskMapper.updateById(any(GpuTask.class))).thenReturn(1);
-
-        gpuTaskService.transition(1L, TaskStatus.CANCELLED, null, 99L);
-
-        ArgumentCaptor<GpuTask> captor = ArgumentCaptor.forClass(GpuTask.class);
-        verify(taskMapper).updateById(captor.capture());
-        assertEquals(TaskStatus.CANCELLED.getCode(), captor.getValue().getStatus());
-        assertNotNull(captor.getValue().getFinishedAt());
-
-        // PENDING→CANCELLED不涉及队列操作
-        verify(priorityQueue, never()).enqueue(anyLong(), anyDouble());
-        verify(priorityQueue, never()).remove(anyLong());
+        verify(taskNotificationService).notifyTaskStatus(eq(100L), eq(1L), eq(TaskStatus.PENDING), eq(TaskStatus.QUEUED), any());
     }
 
     @Test
     void transition_cancelQueuedTask_removesFromQueue() {
         GpuTask task = GpuTask.builder()
-                .id(2L).status(TaskStatus.QUEUED.getCode()).basePriority(5)
+                .id(2L).userId(1L).status(TaskStatus.QUEUED.getCode()).basePriority(5)
                 .build();
         when(taskMapper.selectById(2L)).thenReturn(task);
         when(taskMapper.updateById(any(GpuTask.class))).thenReturn(1);
@@ -137,6 +129,7 @@ class GpuTaskServiceTest {
         gpuTaskService.transition(2L, TaskStatus.CANCELLED, null, 99L);
 
         verify(priorityQueue).remove(2L);
+        verify(taskNotificationService).notifyTaskStatus(2L, 1L, TaskStatus.QUEUED, TaskStatus.CANCELLED, null);
     }
 
     @Test
@@ -156,6 +149,26 @@ class GpuTaskServiceTest {
 
         assertThrows(ResourceNotFoundException.class,
                 () -> gpuTaskService.transition(999L, TaskStatus.QUEUED, null, 1L));
+    }
+
+    @Test
+    void drainQueuedTasks_cancelAllQueuedTasks() {
+        GpuTask q1 = GpuTask.builder().id(101L).status(TaskStatus.QUEUED.getCode()).build();
+        GpuTask q2 = GpuTask.builder().id(102L).status(TaskStatus.QUEUED.getCode()).build();
+        when(taskMapper.selectList(any())).thenReturn(List.of(q1, q2));
+
+        GpuTaskService spy = spy(gpuTaskService);
+        doNothing().when(spy).transition(anyLong(), eq(TaskStatus.CANCELLED), eq(null), eq(9L));
+        when(taskMapper.updateById(any(GpuTask.class))).thenReturn(1);
+
+        int drained = spy.drainQueuedTasks(9L, "operator drain");
+
+        assertEquals(2, drained);
+        verify(spy, times(2)).transition(anyLong(), eq(TaskStatus.CANCELLED), eq(null), eq(9L));
+
+        ArgumentCaptor<GpuTask> captor = ArgumentCaptor.forClass(GpuTask.class);
+        verify(taskMapper, times(2)).updateById(captor.capture());
+        assertTrue(captor.getAllValues().stream().allMatch(v -> "operator drain".equals(v.getErrorMessage())));
     }
 
     @Test

@@ -24,6 +24,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -99,12 +102,31 @@ public class MonitoringService {
                 .mapToLong(t -> Duration.between(t.getEnqueueAt(), t.getDispatchedAt()).toSeconds())
                 .average()
                 .orElse(0.0);
+        List<Long> dispatchLatencies = allTasks.stream()
+                .filter(t -> t.getEnqueueAt() != null && t.getDispatchedAt() != null)
+                .map(t -> Duration.between(t.getEnqueueAt(), t.getDispatchedAt()).toSeconds())
+                .sorted()
+                .toList();
 
         Double avgTurnaround = allTasks.stream()
                 .filter(t -> t.getEnqueueAt() != null && t.getFinishedAt() != null)
                 .mapToLong(t -> Duration.between(t.getEnqueueAt(), t.getFinishedAt()).toSeconds())
                 .average()
                 .orElse(0.0);
+
+        Map<String, Double> dispatchPercentiles = new LinkedHashMap<>();
+        dispatchPercentiles.put("p50", percentile(dispatchLatencies, 0.50));
+        dispatchPercentiles.put("p95", percentile(dispatchLatencies, 0.95));
+        dispatchPercentiles.put("p99", percentile(dispatchLatencies, 0.99));
+
+        Map<String, Long> queueAgeHistogram = initQueueAgeHistogram();
+        allTasks.stream()
+                .filter(t -> t.getStatus() == TaskStatus.QUEUED.getCode() && t.getEnqueueAt() != null)
+                .forEach(t -> {
+                    long ageSeconds = Duration.between(t.getEnqueueAt(), now).toSeconds();
+                    String bucket = queueAgeBucket(ageSeconds);
+                    queueAgeHistogram.put(bucket, queueAgeHistogram.getOrDefault(bucket, 0L) + 1L);
+                });
 
         // 终态任务：完成率 / 失败率
         long completed = countByStatus.getOrDefault("Completed", 0L);
@@ -126,6 +148,15 @@ public class MonitoringService {
                                 ? t.getErrorMessage().substring(0, 50)
                                 : t.getErrorMessage(),
                         Collectors.counting()));
+        Map<String, Long> allocationFailureReasons = allTasks.stream()
+                .filter(t -> t.getStatus() == TaskStatus.FAILED.getCode())
+                .map(GpuTask::getErrorMessage)
+                .filter(m -> m != null && !m.isBlank())
+                .map(this::classifyAllocationFailure)
+                .filter(m -> !"NOT_ALLOCATION".equals(m))
+                .collect(Collectors.groupingBy(m -> m, Collectors.counting()));
+
+        Map<Long, Double> userSlaCompliancePct = calculateUserSlaCompliance(allTasks);
 
         long pendingApprovalCount = countByStatus.getOrDefault(TaskStatus.PENDING_APPROVAL.getLabel(), 0L);
 
@@ -136,9 +167,13 @@ public class MonitoringService {
                 .avgWaitSecondsByPriority(avgWaitByPriority)
                 .avgDispatchLatencySeconds(avgDispatchLatency)
                 .avgTurnaroundSeconds(avgTurnaround)
+                .dispatchLatencyPercentilesSeconds(dispatchPercentiles)
+                .queueAgeHistogram(queueAgeHistogram)
                 .completionRate(completionRate)
                 .failureRate(failureRate)
                 .failureReasons(failureReasons)
+                .allocationFailureReasons(allocationFailureReasons)
+                .userSlaCompliancePct(userSlaCompliancePct)
                 .retryQueueSize(retryDlqService.retryQueueSize())
                 .dlqSize(retryDlqService.dlqSize())
                 .pendingApprovalCount(pendingApprovalCount)
@@ -307,5 +342,69 @@ public class MonitoringService {
         if (basePriority >= 8) return "High(8-10)";
         if (basePriority >= 5) return "Medium(5-7)";
         return "Low(1-4)";
+    }
+
+    private double percentile(List<Long> values, double pct) {
+        if (values == null || values.isEmpty()) {
+            return 0.0;
+        }
+        int idx = (int) Math.ceil(pct * values.size()) - 1;
+        idx = Math.max(0, Math.min(idx, values.size() - 1));
+        return values.get(idx);
+    }
+
+    private Map<String, Long> initQueueAgeHistogram() {
+        Map<String, Long> buckets = new LinkedHashMap<>();
+        buckets.put("lt_1m", 0L);
+        buckets.put("m1_5", 0L);
+        buckets.put("m5_15", 0L);
+        buckets.put("gte_15m", 0L);
+        return buckets;
+    }
+
+    private String queueAgeBucket(long ageSeconds) {
+        if (ageSeconds < 60) return "lt_1m";
+        if (ageSeconds < 300) return "m1_5";
+        if (ageSeconds < 900) return "m5_15";
+        return "gte_15m";
+    }
+
+    private String classifyAllocationFailure(String message) {
+        String lower = message.toLowerCase();
+        if (!(lower.contains("gpu") || lower.contains("alloc") || lower.contains("memory"))) {
+            return "NOT_ALLOCATION";
+        }
+        if (lower.contains("no available") || lower.contains("not available") || lower.contains("insufficient")) {
+            return "NO_AVAILABLE_GPU";
+        }
+        if (lower.contains("memory") || lower.contains("vram")) {
+            return "INSUFFICIENT_MEMORY";
+        }
+        if (lower.contains("offline") || lower.contains("maintenance")) {
+            return "GPU_UNAVAILABLE";
+        }
+        return "OTHER";
+    }
+
+    private Map<Long, Double> calculateUserSlaCompliance(List<GpuTask> allTasks) {
+        Map<Long, List<GpuTask>> byUser = allTasks.stream()
+                .filter(t -> t.getUserId() != null)
+                .filter(t -> t.getStatus() == TaskStatus.COMPLETED.getCode())
+                .filter(t -> t.getEstimatedSeconds() != null && t.getActualSeconds() != null)
+                .collect(Collectors.groupingBy(GpuTask::getUserId));
+
+        Map<Long, Double> result = new LinkedHashMap<>();
+        byUser.entrySet().stream()
+                .sorted(Comparator.comparing(Map.Entry::getKey))
+                .forEach(entry -> {
+                    List<GpuTask> tasks = new ArrayList<>(entry.getValue());
+                    long onTime = tasks.stream()
+                            .filter(t -> t.getActualSeconds()
+                                    .compareTo(t.getEstimatedSeconds().multiply(new BigDecimal("1.10"))) <= 0)
+                            .count();
+                    double pct = tasks.isEmpty() ? 0.0 : onTime * 100.0 / tasks.size();
+                    result.put(entry.getKey(), new BigDecimal(pct).setScale(1, RoundingMode.HALF_UP).doubleValue());
+                });
+        return result;
     }
 }

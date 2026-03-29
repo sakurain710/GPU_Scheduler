@@ -40,7 +40,7 @@ public class TaskAgingScheduler {
      */
     @Scheduled(fixedDelayString = "${scheduler.refresh-interval-ms:60000}")
     public void refreshTaskPriorities() {
-        if (!config.isAgingEnabled()) {
+        if (!config.isScheduledJobsEnabled() || !config.isAgingEnabled()) {
             return;
         }
 

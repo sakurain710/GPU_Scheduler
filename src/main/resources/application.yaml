@@ -1,4 +1,7 @@
 spring:
+  config:
+    import: optional:file:./env.env[.properties]
+
   application:
     name: gpu-scheduler
 
@@ -82,6 +85,11 @@ scheduler:
   refresh-interval-ms: 60000
   aging-enabled: true
   orphan-running-threshold-seconds: 120
+
+worker-heartbeat:
+  enabled: false
+  stale-threshold-seconds: 120
+  scan-interval-ms: 15000
 
 task-retry:
   enabled: true

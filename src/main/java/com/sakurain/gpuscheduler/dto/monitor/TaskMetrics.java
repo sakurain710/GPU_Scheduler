@@ -32,6 +32,12 @@ public class TaskMetrics {
     @Schema(description = "Average turnaround in seconds (enqueue -> finished)")
     private Double avgTurnaroundSeconds;
 
+    @Schema(description = "Dispatch latency percentiles in seconds")
+    private Map<String, Double> dispatchLatencyPercentilesSeconds;
+
+    @Schema(description = "Queue age histogram")
+    private Map<String, Long> queueAgeHistogram;
+
     @Schema(description = "Task completion rate")
     private String completionRate;
 
@@ -40,6 +46,12 @@ public class TaskMetrics {
 
     @Schema(description = "Failure reason distribution")
     private Map<String, Long> failureReasons;
+
+    @Schema(description = "Allocation failure reason distribution")
+    private Map<String, Long> allocationFailureReasons;
+
+    @Schema(description = "Per-user SLA compliance percentage")
+    private Map<Long, Double> userSlaCompliancePct;
 
     @Schema(description = "Retry queue size")
     private Long retryQueueSize;

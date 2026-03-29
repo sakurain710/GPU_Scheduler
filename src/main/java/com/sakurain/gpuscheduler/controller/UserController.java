@@ -11,9 +11,12 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,8 +37,9 @@ import java.util.List;
 @Tag(name = "用户管理", description = "用户CRUD和角色分配")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
-@RequestMapping("/api/users")
+@RequestMapping({"/api/users", "/api/v1/users"})
 @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')")
+@Validated
 public class UserController {
 
     private final UserService userService;
@@ -93,8 +97,10 @@ public class UserController {
     @Operation(summary = "列出用户", description = "支持分页和按用户名/邮箱/状态查询")
     @GetMapping
     public Result<IPage<UserResponse>> listUsers(
-            @Parameter(description = "Page number, starts from 1") @RequestParam(defaultValue = "1") Integer page,
-            @Parameter(description = "Page size") @RequestParam(defaultValue = "10") Integer size,
+            @Parameter(description = "Page number, starts from 1")
+            @RequestParam(defaultValue = "1") @Min(1) Integer page,
+            @Parameter(description = "Page size")
+            @RequestParam(defaultValue = "10") @Min(1) @Max(200) Integer size,
             @RequestParam(required = false) String username,
             @RequestParam(required = false) String email,
             @Parameter(description = "User status") @RequestParam(required = false) Integer status) {

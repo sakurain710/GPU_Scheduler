@@ -12,11 +12,14 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,7 +35,8 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "GPU任务管理", description = "提交、查询和取消GPU任务")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
-@RequestMapping("/api/task")
+@RequestMapping({"/api/task", "/api/v1/task"})
+@Validated
 public class GpuTaskController {
 
     private final GpuTaskService gpuTaskService;
@@ -71,11 +75,11 @@ public class GpuTaskController {
     /**
      * 用户任务列表
      */
-    @Operation(summary = "列出当前用户的任务", description = "支持分页和可选状态过滤")
+    @Operation(summary = "列出当前用户任务", description = "支持分页和可选状态过滤")
     @GetMapping("/my")
     public Result<IPage<TaskResponse>> listMyTasks(
-            @Parameter(description = "页码，从1开始") @RequestParam(defaultValue = "1") Integer page,
-            @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") Integer size,
+            @Parameter(description = "页码，从1开始") @RequestParam(defaultValue = "1") @Min(1) Integer page,
+            @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") @Min(1) @Max(200) Integer size,
             @Parameter(description = "任务状态码过滤") @RequestParam(required = false) Integer status) {
         Long userId = getCurrentUserId();
         return Result.success(gpuTaskService.listUserTasks(userId, page, size, status));
@@ -96,8 +100,8 @@ public class GpuTaskController {
     @GetMapping("/approval/pending")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_SUPER_ADMIN')")
     public Result<IPage<TaskResponse>> listPendingApprovals(
-            @RequestParam(defaultValue = "1") Integer page,
-            @RequestParam(defaultValue = "10") Integer size) {
+            @RequestParam(defaultValue = "1") @Min(1) Integer page,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(200) Integer size) {
         return Result.success(gpuTaskService.listPendingApprovals(page, size));
     }
 

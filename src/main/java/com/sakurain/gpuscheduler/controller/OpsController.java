@@ -30,7 +30,7 @@ import java.util.Map;
 @Tag(name = "运维控制", description = "调度器、熔断器、死信队列")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
-@RequestMapping("/api/ops")
+@RequestMapping({"/api/ops", "/api/v1/ops"})
 @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')")
 public class OpsController {
 

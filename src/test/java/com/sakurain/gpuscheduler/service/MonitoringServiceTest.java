@@ -42,6 +42,8 @@ class MonitoringServiceTest {
     @Mock private RedisTemplate<String, String> redisTemplate;
     @Mock private RedisConnectionFactory connectionFactory;
     @Mock private RedisConnection redisConnection;
+    @Mock private TaskRetryDlqService retryDlqService;
+    @Mock private TaskNotificationService taskNotificationService;
 
     @InjectMocks
     private MonitoringService monitoringService;
@@ -57,6 +59,9 @@ class MonitoringServiceTest {
     void setUp() {
         idleGpu = Gpu.builder().id(1L).memoryGb(new BigDecimal("40")).status(GpuStatus.IDLE.getCode()).build();
         busyGpu = Gpu.builder().id(2L).memoryGb(new BigDecimal("80")).status(GpuStatus.BUSY.getCode()).build();
+        lenient().when(retryDlqService.retryQueueSize()).thenReturn(0L);
+        lenient().when(retryDlqService.dlqSize()).thenReturn(0L);
+        lenient().when(taskNotificationService.webhookRetryQueueSize()).thenReturn(0L);
 
         completedTask = GpuTask.builder()
                 .id(10L).status(TaskStatus.COMPLETED.getCode())
@@ -136,6 +141,32 @@ class MonitoringServiceTest {
         // queuedTask has basePriority=5 → "Medium(5-7)"
         assertThat(metrics.getAvgWaitSecondsByPriority()).containsKey("Medium(5-7)");
         assertThat(metrics.getAvgWaitSecondsByPriority().get("Medium(5-7)")).isGreaterThanOrEqualTo(29.0);
+        assertThat(metrics.getDispatchLatencyPercentilesSeconds()).containsKeys("p50", "p95", "p99");
+        assertThat(metrics.getQueueAgeHistogram()).containsKeys("lt_1m", "m1_5", "m5_15", "gte_15m");
+    }
+
+    @Test
+    void getTaskMetrics_userSlaCompliance_andAllocationFailureReasons() {
+        GpuTask completedOnTime = GpuTask.builder()
+                .id(21L).userId(7L).status(TaskStatus.COMPLETED.getCode())
+                .estimatedSeconds(new BigDecimal("100"))
+                .actualSeconds(new BigDecimal("90"))
+                .build();
+        GpuTask completedLate = GpuTask.builder()
+                .id(22L).userId(7L).status(TaskStatus.COMPLETED.getCode())
+                .estimatedSeconds(new BigDecimal("100"))
+                .actualSeconds(new BigDecimal("130"))
+                .build();
+        GpuTask allocationFailed = GpuTask.builder()
+                .id(23L).status(TaskStatus.FAILED.getCode())
+                .errorMessage("No available GPU to allocate")
+                .build();
+        when(gpuTaskMapper.selectList(null)).thenReturn(List.of(completedOnTime, completedLate, allocationFailed));
+        when(priorityQueue.size()).thenReturn(0L);
+
+        TaskMetrics metrics = monitoringService.getTaskMetrics();
+        assertThat(metrics.getUserSlaCompliancePct()).containsEntry(7L, 50.0);
+        assertThat(metrics.getAllocationFailureReasons()).containsEntry("NO_AVAILABLE_GPU", 1L);
     }
 
     // ── getGpuMetrics ─────────────────────────────────────────────────────────

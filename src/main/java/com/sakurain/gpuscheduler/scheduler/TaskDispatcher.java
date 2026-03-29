@@ -7,6 +7,7 @@ import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
 import com.sakurain.gpuscheduler.service.TaskPreemptionService;
 import com.sakurain.gpuscheduler.util.RedisLockService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -38,6 +39,8 @@ public class TaskDispatcher {
     private int backoffRoundsRemaining = 0;
     private int currentBackoffRounds = INITIAL_BACKOFF_ROUNDS;
     private volatile boolean paused = false;
+    @Value("${scheduler.scheduled-jobs-enabled:true}")
+    private boolean scheduledJobsEnabled;
 
     public TaskDispatcher(TaskPriorityQueue priorityQueue,
                           GpuAllocator gpuAllocator,
@@ -57,7 +60,7 @@ public class TaskDispatcher {
 
     @Scheduled(fixedDelay = 5000, initialDelay = 10000)
     public void dispatch() {
-        if (paused) {
+        if (!scheduledJobsEnabled || paused) {
             return;
         }
         if (backoffRoundsRemaining > 0) {

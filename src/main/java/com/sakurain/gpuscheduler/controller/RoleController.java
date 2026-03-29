@@ -32,7 +32,7 @@ import java.util.List;
 @Tag(name = "角色管理", description = "角色CRUD和角色-用户/权限绑定")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
-@RequestMapping("/api/roles")
+@RequestMapping({"/api/roles", "/api/v1/roles"})
 @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')")
 public class RoleController {
 

@@ -29,7 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Slf4j
 @Tag(name = "认证控制器", description = "登录, token刷新, 登出, 获取当前用户信息")
 @RestController
-@RequestMapping("/api/auth")
+@RequestMapping({"/api/auth", "/api/v1/auth"})
 public class AuthController {
 
     private final AuthService authService;

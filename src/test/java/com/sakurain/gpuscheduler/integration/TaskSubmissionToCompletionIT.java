@@ -122,12 +122,18 @@ class TaskSubmissionToCompletionIT {
 
         // taskMapper.selectById 返回 QUEUED 状态的任务
         GpuTask queuedTask = buildTask(TASK_ID, GPU_ID, TaskStatus.QUEUED, "24.00");
+        queuedTask.setComputeUnitsGflop(new BigDecimal("1"));
         when(taskMapper.selectById(TASK_ID)).thenReturn(queuedTask);
         when(taskMapper.updateById(any(GpuTask.class))).thenReturn(1);
         when(taskLogMapper.insert(any(GpuTaskLog.class))).thenReturn(1);
 
         // gpuAllocator.allocate → IDLE GPU
         when(gpuMapper.selectList(any())).thenReturn(List.of(gpu));
+        when(gpuMapper.tryMarkBusy(
+                eq(GPU_ID),
+                eq(GpuStatus.IDLE.getCode()),
+                eq(GpuStatus.BUSY.getCode())
+        )).thenReturn(1);
 
         // Act — 手动触发一次调度
         // TaskDispatcher.dispatchOnce() 内部会：
@@ -145,7 +151,11 @@ class TaskSubmissionToCompletionIT {
         assignmentService.assign(queuedTask, gpu);
 
         // Assert — GPU 被标记为 BUSY
-        verify(gpuMapper).updateById(argThat((Gpu g) -> g.getStatus() == GpuStatus.BUSY.getCode()));
+        verify(gpuMapper).tryMarkBusy(
+                GPU_ID,
+                GpuStatus.IDLE.getCode(),
+                GpuStatus.BUSY.getCode()
+        );
 
         // Assert — 任务状态日志（QUEUED→RUNNING）
         verify(taskLogMapper, atLeastOnce()).insert(any(GpuTaskLog.class));
@@ -178,7 +188,11 @@ class TaskSubmissionToCompletionIT {
         when(taskMapper.updateById(any(GpuTask.class))).thenReturn(1);
         when(taskLogMapper.insert(any(GpuTaskLog.class))).thenReturn(1);
         when(gpuMapper.selectById(GPU_ID)).thenReturn(busyGpu);
-        when(gpuMapper.updateById(any(Gpu.class))).thenReturn(1);
+        when(gpuMapper.tryMarkIdle(
+                eq(GPU_ID),
+                eq(GpuStatus.BUSY.getCode()),
+                eq(GpuStatus.IDLE.getCode())
+        )).thenReturn(1);
 
         // 向模拟器提交任务（estimatedSeconds 极短，几乎立刻完成）
         GpuTask taskSnapshot = GpuTask.builder()
@@ -197,7 +211,11 @@ class TaskSubmissionToCompletionIT {
         completionMonitor.monitorRunningTasks();
 
         // Assert — GPU 状态更新为 IDLE
-        verify(gpuMapper).updateById(argThat((Gpu g) -> g.getStatus() == GpuStatus.IDLE.getCode()));
+        verify(gpuMapper).tryMarkIdle(
+                GPU_ID,
+                GpuStatus.BUSY.getCode(),
+                GpuStatus.IDLE.getCode()
+        );
 
         // Assert — 任务状态日志（RUNNING→COMPLETED）
         verify(taskLogMapper, atLeastOnce()).insert(any(GpuTaskLog.class));

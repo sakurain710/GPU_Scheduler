@@ -13,6 +13,7 @@ import com.sakurain.gpuscheduler.exception.ResourceNotFoundException;
 import com.sakurain.gpuscheduler.mapper.RoleMapper;
 import com.sakurain.gpuscheduler.mapper.UserMapper;
 import com.sakurain.gpuscheduler.mapper.UserRoleMapper;
+import com.sakurain.gpuscheduler.util.PaginationUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -158,7 +159,10 @@ public class UserService {
         log.debug("分页查询用户列表: page={}, size={}, username={}, email={}, status={}",
                 page, size, username, email, status);
 
-        Page<User> pageParam = new Page<>(page, size);
+        Page<User> pageParam = new Page<>(
+                PaginationUtils.normalizePage(page),
+                PaginationUtils.normalizeSize(size, 10, 200)
+        );
         IPage<User> userPage = userMapper.selectPageWithFilter(pageParam, username, email, status);
 
         log.debug("用户列表查询成功: total={}, pages={}", userPage.getTotal(), userPage.getPages());

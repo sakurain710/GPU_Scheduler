@@ -18,6 +18,7 @@ import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
 import com.sakurain.gpuscheduler.scheduler.TaskAgingScheduler;
 import com.sakurain.gpuscheduler.scheduler.TaskPriorityQueue;
 import com.sakurain.gpuscheduler.scheduler.TaskStateMachine;
+import com.sakurain.gpuscheduler.util.PaginationUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -166,7 +167,10 @@ public class GpuTaskService {
     }
 
     public IPage<TaskResponse> listUserTasks(Long userId, Integer page, Integer size, Integer status) {
-        Page<GpuTask> pageParam = new Page<>(page, size);
+        Page<GpuTask> pageParam = new Page<>(
+                PaginationUtils.normalizePage(page),
+                PaginationUtils.normalizeSize(size, 10, 200)
+        );
         LambdaQueryWrapper<GpuTask> wrapper = new LambdaQueryWrapper<GpuTask>()
                 .eq(GpuTask::getUserId, userId)
                 .orderByDesc(GpuTask::getCreatedAt);
@@ -182,7 +186,10 @@ public class GpuTaskService {
      * 审批人查看待审批任务
      */
     public IPage<TaskResponse> listPendingApprovals(Integer page, Integer size) {
-        Page<GpuTask> pageParam = new Page<>(page, size);
+        Page<GpuTask> pageParam = new Page<>(
+                PaginationUtils.normalizePage(page),
+                PaginationUtils.normalizeSize(size, 10, 200)
+        );
         LambdaQueryWrapper<GpuTask> wrapper = new LambdaQueryWrapper<GpuTask>()
                 .eq(GpuTask::getStatus, TaskStatus.PENDING_APPROVAL.getCode())
                 .orderByAsc(GpuTask::getCreatedAt);

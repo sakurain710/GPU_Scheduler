@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "监控与可观测性", description = "系统和业务指标")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
-@RequestMapping("/api")
+@RequestMapping({"/api", "/api/v1"})
 public class MonitoringController {
 
     private final MonitoringService monitoringService;

@@ -7,15 +7,19 @@ import com.sakurain.gpuscheduler.dto.gpu.RegisterGpuRequest;
 import com.sakurain.gpuscheduler.dto.gpu.UpdateGpuStatusRequest;
 import com.sakurain.gpuscheduler.security.CustomUserDetails;
 import com.sakurain.gpuscheduler.service.GpuService;
+import com.sakurain.gpuscheduler.service.WorkerHeartbeatService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,37 +34,33 @@ import java.util.Map;
 
 /**
  * GPU资源管理
- * <p>
- * 路由：
- *   GET    /api/gpu          — 列出所有GPU（所有认证用户）
- *   GET    /api/gpu/{id}     — GPU详情（所有认证用户）
- *   POST   /api/gpu          — 注册GPU（仅ADMIN）
- *   PUT    /api/gpu/{id}/status — 更新GPU状态（仅ADMIN）
- *   DELETE /api/gpu/{id}     — 删除GPU（仅ADMIN）
- *   GET    /api/gpu/health   — 健康检查（仅ADMIN）
- *   GET    /api/gpu/metrics  — 利用率统计（仅ADMIN）
  */
 @Slf4j
 @Tag(name = "GPU资源管理", description = "GPU注册、查询、状态更新和指标")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
-@RequestMapping("/api/gpu")
+@RequestMapping({"/api/gpu", "/api/v1/gpu"})
+@Validated
 public class GpuController {
 
     private final GpuService gpuService;
+    private final WorkerHeartbeatService workerHeartbeatService;
 
-    public GpuController(GpuService gpuService) {
+    public GpuController(GpuService gpuService, WorkerHeartbeatService workerHeartbeatService) {
         this.gpuService = gpuService;
+        this.workerHeartbeatService = workerHeartbeatService;
     }
 
     /**
-     * 列出所有GPU，支持按状态过滤和分页
+     * 列出GPU，支持按状态过滤和分页
      */
     @Operation(summary = "列出GPU", description = "支持分页和可选状态过滤")
     @GetMapping
     public Result<IPage<GpuResponse>> listGpus(
-            @Parameter(description = "Page number, starts from 1") @RequestParam(defaultValue = "1") Integer page,
-            @Parameter(description = "Page size") @RequestParam(defaultValue = "20") Integer size,
+            @Parameter(description = "Page number, starts from 1")
+            @RequestParam(defaultValue = "1") @Min(1) Integer page,
+            @Parameter(description = "Page size")
+            @RequestParam(defaultValue = "20") @Min(1) @Max(200) Integer size,
             @Parameter(description = "GPU status: 1=IDLE,2=BUSY,3=OFFLINE,4=MAINTENANCE")
             @RequestParam(required = false) Integer status) {
         return Result.success(gpuService.listGpus(page, size, status));
@@ -112,7 +112,7 @@ public class GpuController {
     }
 
     /**
-     * GPU健康检查 — 各状态数量统计（仅ADMIN）
+     * GPU健康检查（仅ADMIN）
      */
     @Operation(summary = "GPU健康摘要", description = "仅管理员")
     @GetMapping("/health")
@@ -129,6 +129,21 @@ public class GpuController {
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public Result<Map<String, Object>> utilizationMetrics() {
         return Result.success(gpuService.utilizationMetrics());
+    }
+
+    /**
+     * 上报GPU worker心跳（仅管理员）
+     */
+    @Operation(summary = "上报GPU worker心跳", description = "仅管理员")
+    @PostMapping("/{gpuId}/heartbeat")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_SUPER_ADMIN')")
+    public Result<Map<String, Object>> heartbeat(@PathVariable Long gpuId) {
+        workerHeartbeatService.beat(gpuId);
+        return Result.success(Map.of(
+                "gpuId", gpuId,
+                "accepted", true,
+                "heartbeatAgeSeconds", 0
+        ));
     }
 
     private Long getCurrentUserId() {

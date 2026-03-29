@@ -1,4 +1,11 @@
 spring:
+  config:
+    import: optional:file:./env.env[.properties]
+
+  task:
+    scheduling:
+      enabled: false
+
   datasource:
     type: com.zaxxer.hikari.HikariDataSource
     driver-class-name: org.h2.Driver
@@ -10,3 +17,9 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
     log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+jwt:
+  secret-key: test-secret-key-for-jwt-hs256-minimum-32-bytes
+
+scheduler:
+  scheduled-jobs-enabled: false
