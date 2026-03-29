@@ -15,6 +15,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -25,8 +26,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.ArgumentMatchers.argThat;
 
 /**
  * 任务完成监控器单元测试
@@ -165,5 +169,77 @@ class TaskCompletionMonitorTest {
         ArgumentCaptor<GpuTask> captor = ArgumentCaptor.forClass(GpuTask.class);
         verify(taskMapper).updateById(captor.capture());
         assertThat(captor.getValue().getActualSeconds()).isEqualByComparingTo("4.8");
+    }
+
+    @Test
+    void testMonitor_OrphanRunningTaskRecoveredAfterThreshold() {
+        GpuTask orphanTask = GpuTask.builder()
+                .id(300L)
+                .gpuId(3L)
+                .status(TaskStatus.RUNNING.getCode())
+                .estimatedSeconds(new BigDecimal("120.0"))
+                .dispatchedAt(LocalDateTime.now().minusSeconds(130))
+                .build();
+        ReflectionTestUtils.setField(monitor, "orphanRunningThresholdSeconds", 120L);
+
+        when(taskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(orphanTask));
+        when(simulator.isRunning(300L)).thenReturn(false);
+        when(simulator.getResult(eq(300L), eq(1L))).thenReturn(null);
+        when(gpuMapper.tryMarkIdle(3L, GpuStatus.BUSY.getCode(), GpuStatus.IDLE.getCode())).thenReturn(1);
+
+        monitor.monitorRunningTasks();
+
+        verify(taskService).transition(300L, TaskStatus.FAILED, 3L, null);
+        verify(retryDlqService).onTaskFailed(300L, "Orphan RUNNING task recovered after restart");
+    }
+
+    @Test
+    void testMonitor_OrphanBelowThreshold_NotRecovered() {
+        GpuTask almostOrphan = GpuTask.builder()
+                .id(301L)
+                .gpuId(4L)
+                .status(TaskStatus.RUNNING.getCode())
+                .estimatedSeconds(new BigDecimal("120.0"))
+                .dispatchedAt(LocalDateTime.now().minusSeconds(119))
+                .build();
+        ReflectionTestUtils.setField(monitor, "orphanRunningThresholdSeconds", 120L);
+
+        when(taskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(almostOrphan));
+        when(simulator.isRunning(301L)).thenReturn(false);
+        when(simulator.getResult(eq(301L), eq(1L))).thenReturn(null);
+
+        monitor.monitorRunningTasks();
+
+        verify(taskService, never()).transition(eq(301L), any(), any(), any());
+        verify(retryDlqService, never()).onTaskFailed(eq(301L), any());
+    }
+
+    @Test
+    void testMonitor_DbPartialFailure_ContinuesOtherTasks() {
+        GpuTask broken = GpuTask.builder()
+                .id(401L)
+                .gpuId(5L)
+                .status(TaskStatus.RUNNING.getCode())
+                .estimatedSeconds(new BigDecimal("1.0"))
+                .dispatchedAt(LocalDateTime.now().minusSeconds(10))
+                .build();
+        GpuTask healthy = GpuTask.builder()
+                .id(402L)
+                .gpuId(6L)
+                .status(TaskStatus.RUNNING.getCode())
+                .estimatedSeconds(new BigDecimal("1.0"))
+                .dispatchedAt(LocalDateTime.now().minusSeconds(10))
+                .build();
+
+        when(taskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(broken, healthy));
+        when(simulator.cancelTask(anyLong())).thenReturn(true);
+        doThrow(new RuntimeException("db fail"))
+                .when(taskMapper).updateById((GpuTask) argThat(t -> t != null && Long.valueOf(401L).equals(((GpuTask) t).getId())));
+        when(gpuMapper.tryMarkIdle(6L, GpuStatus.BUSY.getCode(), GpuStatus.IDLE.getCode())).thenReturn(1);
+
+        monitor.monitorRunningTasks();
+
+        verify(taskService, never()).transition(401L, TaskStatus.FAILED, 5L, null);
+        verify(taskService).transition(402L, TaskStatus.FAILED, 6L, null);
     }
 }
