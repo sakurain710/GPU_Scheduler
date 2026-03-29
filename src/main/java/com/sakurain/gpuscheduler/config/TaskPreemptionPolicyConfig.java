@@ -26,5 +26,14 @@ public class TaskPreemptionPolicyConfig {
      * 抢占优先级差阈值（waiting - running >= 阈值）
      */
     private int minPriorityGap = 2;
-}
 
+    /**
+     * 被抢占任务冷却时间（秒）
+     */
+    private long cooldownSeconds = 120;
+
+    /**
+     * 每分钟最大自动抢占次数
+     */
+    private int maxPreemptionsPerMinute = 10;
+}

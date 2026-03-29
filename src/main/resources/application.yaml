@@ -101,6 +101,8 @@ task-preemption:
   enabled: true
   trigger-priority: 9
   min-priority-gap: 2
+  cooldown-seconds: 120
+  max-preemptions-per-minute: 10
 
 notification:
   task-topic-prefix: /topic/task-status/
@@ -108,3 +110,6 @@ notification:
     enabled: false
     url: ${TASK_STATUS_WEBHOOK_URL:}
     timeout-ms: 2000
+    retry-max-attempts: 3
+    retry-interval-ms: 10000
+    retry-batch-size: 50

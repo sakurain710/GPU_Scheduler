@@ -41,19 +41,22 @@ public class MonitoringService {
     private final CircuitBreakerService circuitBreaker;
     private final RedisTemplate<String, String> redisTemplate;
     private final TaskRetryDlqService retryDlqService;
+    private final TaskNotificationService taskNotificationService;
 
     public MonitoringService(GpuTaskMapper gpuTaskMapper,
                              GpuMapper gpuMapper,
                              TaskPriorityQueue priorityQueue,
                              CircuitBreakerService circuitBreaker,
                              RedisTemplate<String, String> redisTemplate,
-                             TaskRetryDlqService retryDlqService) {
+                             TaskRetryDlqService retryDlqService,
+                             TaskNotificationService taskNotificationService) {
         this.gpuTaskMapper = gpuTaskMapper;
         this.gpuMapper = gpuMapper;
         this.priorityQueue = priorityQueue;
         this.circuitBreaker = circuitBreaker;
         this.redisTemplate = redisTemplate;
         this.retryDlqService = retryDlqService;
+        this.taskNotificationService = taskNotificationService;
     }
 
     // ── Task Metrics ──────────────────────────────────────────────────────────
@@ -139,6 +142,7 @@ public class MonitoringService {
                 .retryQueueSize(retryDlqService.retryQueueSize())
                 .dlqSize(retryDlqService.dlqSize())
                 .pendingApprovalCount(pendingApprovalCount)
+                .webhookRetryQueueSize(taskNotificationService.webhookRetryQueueSize())
                 .build();
     }
 

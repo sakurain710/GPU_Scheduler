@@ -2,11 +2,13 @@ package com.sakurain.gpuscheduler.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.sakurain.gpuscheduler.dto.Result;
+import com.sakurain.gpuscheduler.dto.task.QuotaUsageResponse;
 import com.sakurain.gpuscheduler.dto.task.RejectTaskRequest;
 import com.sakurain.gpuscheduler.dto.task.SubmitTaskRequest;
 import com.sakurain.gpuscheduler.dto.task.TaskResponse;
 import com.sakurain.gpuscheduler.security.CustomUserDetails;
 import com.sakurain.gpuscheduler.service.GpuTaskService;
+import com.sakurain.gpuscheduler.service.UserQuotaService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -36,10 +38,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class GpuTaskController {
 
     private final GpuTaskService gpuTaskService;
+    private final UserQuotaService userQuotaService;
 
     @Autowired
-    public GpuTaskController(GpuTaskService gpuTaskService) {
+    public GpuTaskController(GpuTaskService gpuTaskService, UserQuotaService userQuotaService) {
         this.gpuTaskService = gpuTaskService;
+        this.userQuotaService = userQuotaService;
     }
 
     /**
@@ -119,6 +123,13 @@ public class GpuTaskController {
         String reason = request != null ? request.getReason() : null;
         TaskResponse response = gpuTaskService.rejectTask(taskId, currentUser.getUserId(), reason);
         return Result.success(response);
+    }
+
+    @Operation(summary = "查询当前用户配额使用")
+    @GetMapping("/quota/me")
+    public Result<QuotaUsageResponse> getMyQuotaUsage() {
+        Long userId = getCurrentUserId();
+        return Result.success(userQuotaService.getMonthlyUsage(userId));
     }
 
     private Long getCurrentUserId() {

@@ -49,4 +49,7 @@ public class TaskMetrics {
 
     @Schema(description = "Pending approval task count")
     private Long pendingApprovalCount;
+
+    @Schema(description = "Webhook retry queue size")
+    private Long webhookRetryQueueSize;
 }

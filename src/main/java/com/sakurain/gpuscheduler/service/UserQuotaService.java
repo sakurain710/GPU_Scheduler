@@ -14,7 +14,11 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 用户配额服务
@@ -57,6 +61,44 @@ public class UserQuotaService {
 
     public QuotaUsageResponse getMonthlyUsage(Long userId) {
         QuotaRawUsage usage = calculateRawUsage(userId);
+        return toResponse(userId, usage);
+    }
+
+    public List<QuotaUsageResponse> getTopMonthlyUsage(int limit) {
+        LocalDateTime monthStart = LocalDate.now().withDayOfMonth(1).atStartOfDay();
+        List<GpuTask> tasks = gpuTaskMapper.selectList(new LambdaQueryWrapper<GpuTask>()
+                .ge(GpuTask::getCreatedAt, monthStart));
+
+        Map<Long, QuotaRawUsage> usageByUser = new LinkedHashMap<>();
+        for (GpuTask task : tasks) {
+            if (task.getUserId() == null) {
+                continue;
+            }
+            TaskStatus status = TaskStatus.fromCode(task.getStatus());
+            if (status == TaskStatus.REJECTED || status == TaskStatus.CANCELLED) {
+                continue;
+            }
+            double seconds = resolveTaskSeconds(task);
+            BigDecimal memory = task.getMinMemoryGb() != null ? task.getMinMemoryGb() : BigDecimal.ZERO;
+            QuotaRawUsage prev = usageByUser.getOrDefault(task.getUserId(), new QuotaRawUsage(0D, 0D));
+            usageByUser.put(task.getUserId(), new QuotaRawUsage(
+                    prev.usedGpuSeconds + seconds,
+                    prev.usedMemoryGbSeconds + memory.doubleValue() * seconds
+            ));
+        }
+
+        List<QuotaUsageResponse> list = new ArrayList<>();
+        for (Map.Entry<Long, QuotaRawUsage> entry : usageByUser.entrySet()) {
+            list.add(toResponse(entry.getKey(), entry.getValue()));
+        }
+        list.sort(Comparator.comparing(QuotaUsageResponse::getGpuUsagePercent).reversed());
+        if (limit > 0 && list.size() > limit) {
+            return list.subList(0, limit);
+        }
+        return list;
+    }
+
+    private QuotaUsageResponse toResponse(Long userId, QuotaRawUsage usage) {
         double gpuLimit = quotaPolicy.getMonthlyMaxGpuSeconds();
         double memoryLimit = quotaPolicy.getMonthlyMaxMemoryGbSeconds();
 
@@ -119,4 +161,3 @@ public class UserQuotaService {
     private record QuotaRawUsage(double usedGpuSeconds, double usedMemoryGbSeconds) {
     }
 }
-
