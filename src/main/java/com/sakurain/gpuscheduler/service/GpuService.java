@@ -69,15 +69,27 @@ public class GpuService {
     /**
      * 分页查询GPU列表，支持按状态过滤
      */
-    public IPage<GpuResponse> listGpus(Integer page, Integer size, Integer status) {
+    public IPage<GpuResponse> listGpus(Integer page,
+                                       Integer size,
+                                       Integer status,
+                                       String sortBy,
+                                       String sortDir) {
         Page<Gpu> pageParam = new Page<>(
                 PaginationUtils.normalizePage(page),
                 PaginationUtils.normalizeSize(size, 20, 200)
         );
-        LambdaQueryWrapper<Gpu> query = new LambdaQueryWrapper<Gpu>()
-                .orderByAsc(Gpu::getId);
+        LambdaQueryWrapper<Gpu> query = new LambdaQueryWrapper<>();
         if (status != null) {
             query.eq(Gpu::getStatus, status);
+        }
+        boolean asc = !"desc".equalsIgnoreCase(sortDir);
+        switch (sortBy == null ? "id" : sortBy) {
+            case "name" -> query.orderBy(true, asc, Gpu::getName);
+            case "memoryGb" -> query.orderBy(true, asc, Gpu::getMemoryGb);
+            case "computingPowerTflops" -> query.orderBy(true, asc, Gpu::getComputingPowerTflops);
+            case "status" -> query.orderBy(true, asc, Gpu::getStatus);
+            case "createdAt" -> query.orderBy(true, asc, Gpu::getCreatedAt);
+            default -> query.orderBy(true, asc, Gpu::getId);
         }
         IPage<Gpu> gpuPage = gpuMapper.selectPage(pageParam, query);
         return gpuPage.convert(this::toResponse);

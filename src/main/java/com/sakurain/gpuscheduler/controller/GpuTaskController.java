@@ -75,14 +75,18 @@ public class GpuTaskController {
     /**
      * 用户任务列表
      */
-    @Operation(summary = "列出当前用户任务", description = "支持分页和可选状态过滤")
+    @Operation(summary = "列出当前用户任务", description = "支持分页、状态过滤和排序")
     @GetMapping("/my")
     public Result<IPage<TaskResponse>> listMyTasks(
             @Parameter(description = "页码，从1开始") @RequestParam(defaultValue = "1") @Min(1) Integer page,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") @Min(1) @Max(200) Integer size,
-            @Parameter(description = "任务状态码过滤") @RequestParam(required = false) Integer status) {
+            @Parameter(description = "任务状态码过滤") @RequestParam(required = false) Integer status,
+            @Parameter(description = "排序字段: createdAt/basePriority/enqueueAt/status/id")
+            @RequestParam(required = false, defaultValue = "createdAt") String sortBy,
+            @Parameter(description = "排序方向: asc/desc")
+            @RequestParam(required = false, defaultValue = "desc") String sortDir) {
         Long userId = getCurrentUserId();
-        return Result.success(gpuTaskService.listUserTasks(userId, page, size, status));
+        return Result.success(gpuTaskService.listUserTasks(userId, page, size, status, sortBy, sortDir));
     }
 
     /**
@@ -101,8 +105,10 @@ public class GpuTaskController {
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_SUPER_ADMIN')")
     public Result<IPage<TaskResponse>> listPendingApprovals(
             @RequestParam(defaultValue = "1") @Min(1) Integer page,
-            @RequestParam(defaultValue = "10") @Min(1) @Max(200) Integer size) {
-        return Result.success(gpuTaskService.listPendingApprovals(page, size));
+            @RequestParam(defaultValue = "10") @Min(1) @Max(200) Integer size,
+            @RequestParam(required = false, defaultValue = "createdAt") String sortBy,
+            @RequestParam(required = false, defaultValue = "asc") String sortDir) {
+        return Result.success(gpuTaskService.listPendingApprovals(page, size, sortBy, sortDir));
     }
 
     @Operation(summary = "审批通过任务")

@@ -121,7 +121,7 @@ class GpuServiceTest {
 
         when(gpuMapper.selectPage(any(), any(LambdaQueryWrapper.class))).thenReturn(gpuPage);
 
-        IPage<GpuResponse> result = gpuService.listGpus(1, 20, null);
+        IPage<GpuResponse> result = gpuService.listGpus(1, 20, null, "id", "asc");
 
         assertThat(result.getTotal()).isEqualTo(2);
         assertThat(result.getRecords()).hasSize(2);

@@ -166,18 +166,23 @@ public class GpuTaskService {
         transition(taskId, TaskStatus.CANCELLED, null, requesterId);
     }
 
-    public IPage<TaskResponse> listUserTasks(Long userId, Integer page, Integer size, Integer status) {
+    public IPage<TaskResponse> listUserTasks(Long userId,
+                                             Integer page,
+                                             Integer size,
+                                             Integer status,
+                                             String sortBy,
+                                             String sortDir) {
         Page<GpuTask> pageParam = new Page<>(
                 PaginationUtils.normalizePage(page),
                 PaginationUtils.normalizeSize(size, 10, 200)
         );
         LambdaQueryWrapper<GpuTask> wrapper = new LambdaQueryWrapper<GpuTask>()
-                .eq(GpuTask::getUserId, userId)
-                .orderByDesc(GpuTask::getCreatedAt);
+                .eq(GpuTask::getUserId, userId);
 
         if (status != null) {
             wrapper.eq(GpuTask::getStatus, status);
         }
+        applyTaskSort(wrapper, sortBy, sortDir, true);
 
         return taskMapper.selectPage(pageParam, wrapper).convert(this::toResponse);
     }
@@ -185,15 +190,33 @@ public class GpuTaskService {
     /**
      * 审批人查看待审批任务
      */
-    public IPage<TaskResponse> listPendingApprovals(Integer page, Integer size) {
+    public IPage<TaskResponse> listPendingApprovals(Integer page,
+                                                    Integer size,
+                                                    String sortBy,
+                                                    String sortDir) {
         Page<GpuTask> pageParam = new Page<>(
                 PaginationUtils.normalizePage(page),
                 PaginationUtils.normalizeSize(size, 10, 200)
         );
         LambdaQueryWrapper<GpuTask> wrapper = new LambdaQueryWrapper<GpuTask>()
-                .eq(GpuTask::getStatus, TaskStatus.PENDING_APPROVAL.getCode())
-                .orderByAsc(GpuTask::getCreatedAt);
+                .eq(GpuTask::getStatus, TaskStatus.PENDING_APPROVAL.getCode());
+        applyTaskSort(wrapper, sortBy, sortDir, false);
         return taskMapper.selectPage(pageParam, wrapper).convert(this::toResponse);
+    }
+
+    private void applyTaskSort(LambdaQueryWrapper<GpuTask> wrapper,
+                               String sortBy,
+                               String sortDir,
+                               boolean defaultDesc) {
+        boolean asc = sortDir == null ? !defaultDesc : !"desc".equalsIgnoreCase(sortDir);
+        String key = sortBy == null ? "createdAt" : sortBy;
+        switch (key) {
+            case "basePriority" -> wrapper.orderBy(true, asc, GpuTask::getBasePriority);
+            case "enqueueAt" -> wrapper.orderBy(true, asc, GpuTask::getEnqueueAt);
+            case "status" -> wrapper.orderBy(true, asc, GpuTask::getStatus);
+            case "id" -> wrapper.orderBy(true, asc, GpuTask::getId);
+            default -> wrapper.orderBy(true, asc, GpuTask::getCreatedAt);
+        }
     }
 
     @Transactional

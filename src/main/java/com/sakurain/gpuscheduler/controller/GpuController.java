@@ -52,22 +52,26 @@ public class GpuController {
     }
 
     /**
-     * 列出GPU，支持按状态过滤和分页
+     * 列出GPU，支持分页、过滤和排序。
      */
-    @Operation(summary = "列出GPU", description = "支持分页和可选状态过滤")
+    @Operation(summary = "列出GPU", description = "支持分页、状态过滤和排序")
     @GetMapping
     public Result<IPage<GpuResponse>> listGpus(
-            @Parameter(description = "Page number, starts from 1")
+            @Parameter(description = "页码，从1开始")
             @RequestParam(defaultValue = "1") @Min(1) Integer page,
-            @Parameter(description = "Page size")
+            @Parameter(description = "每页大小")
             @RequestParam(defaultValue = "20") @Min(1) @Max(200) Integer size,
-            @Parameter(description = "GPU status: 1=IDLE,2=BUSY,3=OFFLINE,4=MAINTENANCE")
-            @RequestParam(required = false) Integer status) {
-        return Result.success(gpuService.listGpus(page, size, status));
+            @Parameter(description = "GPU状态: 1=IDLE,2=BUSY,3=OFFLINE,4=MAINTENANCE")
+            @RequestParam(required = false) Integer status,
+            @Parameter(description = "排序字段: id/name/memoryGb/computingPowerTflops/status/createdAt")
+            @RequestParam(required = false, defaultValue = "id") String sortBy,
+            @Parameter(description = "排序方向: asc/desc")
+            @RequestParam(required = false, defaultValue = "asc") String sortDir) {
+        return Result.success(gpuService.listGpus(page, size, status, sortBy, sortDir));
     }
 
     /**
-     * 查询GPU详情
+     * 查询GPU详情。
      */
     @Operation(summary = "根据ID获取GPU")
     @GetMapping("/{gpuId}")
@@ -76,7 +80,7 @@ public class GpuController {
     }
 
     /**
-     * 注册新GPU（仅ADMIN）
+     * 注册新GPU，仅管理员。
      */
     @Operation(summary = "注册GPU", description = "仅管理员")
     @PostMapping
@@ -88,7 +92,7 @@ public class GpuController {
     }
 
     /**
-     * 更新GPU状态（仅ADMIN）
+     * 更新GPU状态，仅管理员。
      */
     @Operation(summary = "更新GPU状态", description = "仅管理员")
     @PutMapping("/{gpuId}/status")
@@ -101,7 +105,7 @@ public class GpuController {
     }
 
     /**
-     * 删除GPU（仅ADMIN）
+     * 删除GPU，仅管理员。
      */
     @Operation(summary = "删除GPU", description = "仅管理员")
     @DeleteMapping("/{gpuId}")
@@ -112,7 +116,7 @@ public class GpuController {
     }
 
     /**
-     * GPU健康检查（仅ADMIN）
+     * GPU健康检查，仅管理员。
      */
     @Operation(summary = "GPU健康摘要", description = "仅管理员")
     @GetMapping("/health")
@@ -122,7 +126,7 @@ public class GpuController {
     }
 
     /**
-     * GPU利用率统计（仅ADMIN）
+     * GPU利用率指标，仅管理员。
      */
     @Operation(summary = "GPU利用率指标", description = "仅管理员")
     @GetMapping("/metrics")
@@ -132,7 +136,7 @@ public class GpuController {
     }
 
     /**
-     * 上报GPU worker心跳（仅管理员）
+     * 上报GPU worker心跳，仅管理员。
      */
     @Operation(summary = "上报GPU worker心跳", description = "仅管理员")
     @PostMapping("/{gpuId}/heartbeat")

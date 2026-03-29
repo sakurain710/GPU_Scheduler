@@ -50,7 +50,7 @@ public class UserController {
     }
 
     /**
-     * 创建用户
+     * 创建用户。
      */
     @Operation(summary = "创建用户")
     @PostMapping
@@ -60,7 +60,7 @@ public class UserController {
     }
 
     /**
-     * 更新用户
+     * 更新用户。
      */
     @Operation(summary = "更新用户")
     @PutMapping("/{userId}")
@@ -72,7 +72,7 @@ public class UserController {
     }
 
     /**
-     * 删除用户
+     * 删除用户。
      */
     @Operation(summary = "删除用户")
     @DeleteMapping("/{userId}")
@@ -82,7 +82,7 @@ public class UserController {
     }
 
     /**
-     * 获取用户详情
+     * 获取用户详情。
      */
     @Operation(summary = "根据ID获取用户")
     @GetMapping("/{userId}")
@@ -92,24 +92,28 @@ public class UserController {
     }
 
     /**
-     * 分页查询用户列表
+     * 用户分页列表，支持过滤和排序。
      */
-    @Operation(summary = "列出用户", description = "支持分页和按用户名/邮箱/状态查询")
+    @Operation(summary = "列出用户", description = "支持分页、过滤和排序")
     @GetMapping
     public Result<IPage<UserResponse>> listUsers(
-            @Parameter(description = "Page number, starts from 1")
+            @Parameter(description = "页码，从1开始")
             @RequestParam(defaultValue = "1") @Min(1) Integer page,
-            @Parameter(description = "Page size")
+            @Parameter(description = "每页大小")
             @RequestParam(defaultValue = "10") @Min(1) @Max(200) Integer size,
             @RequestParam(required = false) String username,
             @RequestParam(required = false) String email,
-            @Parameter(description = "User status") @RequestParam(required = false) Integer status) {
-        IPage<UserResponse> response = userService.listUsers(page, size, username, email, status);
+            @Parameter(description = "用户状态") @RequestParam(required = false) Integer status,
+            @Parameter(description = "排序字段: createdAt/username/email/status/id")
+            @RequestParam(required = false, defaultValue = "createdAt") String sortBy,
+            @Parameter(description = "排序方向: asc/desc")
+            @RequestParam(required = false, defaultValue = "desc") String sortDir) {
+        IPage<UserResponse> response = userService.listUsers(page, size, username, email, status, sortBy, sortDir);
         return Result.success(response);
     }
 
     /**
-     * 为用户分配角色
+     * 为用户分配角色。
      */
     @Operation(summary = "为用户分配角色")
     @PostMapping("/{userId}/roles")
