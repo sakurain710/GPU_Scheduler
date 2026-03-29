@@ -21,8 +21,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 
 /**
- * JWT 认证过滤器
- * 从请求头中提取 JWT token，验证并设置用户认证信息到 SecurityContext
+ * JWT认证过滤器
  */
 @Slf4j
 @Component
@@ -34,7 +33,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final TokenBlacklistService tokenBlacklistService;
 
     @Autowired
-    public JwtAuthenticationFilter(JwtUtil jwtUtil, JwtConfig jwtConfig,
+    public JwtAuthenticationFilter(JwtUtil jwtUtil,
+                                   JwtConfig jwtConfig,
                                    CustomUserDetailsService userDetailsService,
                                    TokenBlacklistService tokenBlacklistService) {
         this.jwtUtil = jwtUtil;
@@ -48,27 +48,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     @NonNull HttpServletResponse response,
                                     @NonNull FilterChain filterChain) throws ServletException, IOException {
         try {
-            // 从请求头中获取 JWT token
             String jwt = getJwtFromRequest(request);
 
-            // 验证 token 是否有效
             if (StringUtils.hasText(jwt) && jwtUtil.validateToken(jwt)) {
-                // 检查令牌是否已被吊销（加入黑名单）
+                // 只允许 access token 进入鉴权流程
+                if (!jwtUtil.isAccessToken(jwt)) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
                 if (tokenBlacklistService.isBlacklisted(jwt)) {
                     log.warn("令牌已被吊销，拒绝访问");
                     filterChain.doFilter(request, response);
                     return;
                 }
 
-                // 从 token 中获取用户ID
                 Long userId = jwtUtil.getUserIdFromToken(jwt);
-
-                // 加载用户信息
                 UserDetails userDetails = userDetailsService.loadUserById(userId);
 
-                // 检查用户是否已启用
                 if (userDetails.isEnabled()) {
-                    // 创建认证对象
                     UsernamePasswordAuthenticationToken authentication =
                             new UsernamePasswordAuthenticationToken(
                                     userDetails,
@@ -76,25 +74,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     userDetails.getAuthorities()
                             );
                     authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-
-                    // 设置认证信息到 SecurityContext
                     SecurityContextHolder.getContext().setAuthentication(authentication);
-                    log.debug("JWT 认证成功，用户ID: {}", userId);
                 } else {
                     log.warn("用户已被禁用: {}", userId);
                 }
             }
         } catch (Exception ex) {
-            log.error("JWT 认证失败: {}", ex.getMessage());
+            log.error("JWT认证失败: {}", ex.getMessage());
         }
 
-        // 继续过滤器链
         filterChain.doFilter(request, response);
     }
 
-    /**
-     * 从请求头中提取 JWT token
-     */
     private String getJwtFromRequest(HttpServletRequest request) {
         String bearerToken = request.getHeader(jwtConfig.getHeaderName());
         return jwtUtil.extractTokenFromHeader(bearerToken);

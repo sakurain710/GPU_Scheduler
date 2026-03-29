@@ -29,16 +29,13 @@ import java.time.Duration;
 
 /**
  * 限流过滤器
- * - 登录接口：每 IP 每分钟最多 N 次（防暴力破解）
- * - 其他接口：每用户/IP 每分钟最多 N 次
- * Redis 不可用时 fail-open（记录警告，放行请求）
- * ProxyManager 延迟初始化，避免测试环境（无 Redis）启动失败
  */
 @Slf4j
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
 
     private static final String LOGIN_PATH = "/api/auth/login";
+    private static final String AUTH_PATH_PREFIX = "/api/auth/";
     private static final String LOGIN_KEY_PREFIX = "gpu-scheduler:ratelimit:login:";
     private static final String API_KEY_PREFIX = "gpu-scheduler:ratelimit:api:";
 
@@ -47,7 +44,6 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private final ObjectMapper objectMapper;
     private final ApplicationContext applicationContext;
 
-    /** 延迟初始化，避免 Redis 未就绪时启动失败 */
     private volatile LettuceBasedProxyManager<String> proxyManager;
 
     @Value("${rate-limit.login.capacity:5}")
@@ -61,6 +57,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     @Value("${rate-limit.api.refill-duration:60}")
     private long apiRefillDuration;
+
+    @Value("${rate-limit.fail-closed-auth:true}")
+    private boolean failClosedAuth;
 
     @Autowired
     public RateLimitFilter(JwtUtil jwtUtil,
@@ -77,11 +76,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
     protected void doFilterInternal(@NonNull HttpServletRequest request,
                                     @NonNull HttpServletResponse response,
                                     @NonNull FilterChain filterChain) throws ServletException, IOException {
+        String path = request.getRequestURI();
+        boolean isLoginPath = LOGIN_PATH.equals(path);
+        boolean isAuthPath = path != null && path.startsWith(AUTH_PATH_PREFIX);
+
         try {
             LettuceBasedProxyManager<String> pm = getProxyManager();
-
-            String path = request.getRequestURI();
-            boolean isLoginPath = LOGIN_PATH.equals(path);
 
             String key = isLoginPath
                     ? LOGIN_KEY_PREFIX + getClientIp(request)
@@ -95,8 +95,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
 
             if (probe.isConsumed()) {
-                response.setHeader("X-RateLimit-Remaining",
-                        String.valueOf(probe.getRemainingTokens()));
+                response.setHeader("X-RateLimit-Remaining", String.valueOf(probe.getRemainingTokens()));
                 filterChain.doFilter(request, response);
             } else {
                 long retryAfterSeconds = probe.getNanosToWaitForRefill() / 1_000_000_000L;
@@ -104,35 +103,42 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 writeTooManyRequestsResponse(response, retryAfterSeconds);
             }
         } catch (RedisConnectionFailureException e) {
-            log.warn("Redis 不可用，跳过限流检查（fail-open）: {}", e.getMessage());
-            filterChain.doFilter(request, response);
+            handleRedisUnavailable(request, response, filterChain, isAuthPath, e);
         } catch (Exception e) {
-            // 捕获延迟初始化失败（Redis 不可用）
             if (isRedisUnavailable(e)) {
-                log.warn("Redis 不可用，跳过限流检查（fail-open）: {}", e.getMessage());
-                filterChain.doFilter(request, response);
+                handleRedisUnavailable(request, response, filterChain, isAuthPath, e);
             } else {
                 throw e;
             }
         }
     }
 
-    /**
-     * 延迟获取 ProxyManager，首次调用时初始化（double-checked locking）
-     */
     @SuppressWarnings("unchecked")
     private LettuceBasedProxyManager<String> getProxyManager() {
         if (proxyManager == null) {
             synchronized (this) {
                 if (proxyManager == null) {
                     StatefulRedisConnection<String, byte[]> conn =
-                            applicationContext.getBean("lettuceRedisConnection",
-                                    StatefulRedisConnection.class);
+                            applicationContext.getBean("lettuceRedisConnection", StatefulRedisConnection.class);
                     proxyManager = LettuceBasedProxyManager.builderFor(conn).build();
                 }
             }
         }
         return proxyManager;
+    }
+
+    private void handleRedisUnavailable(HttpServletRequest request,
+                                        HttpServletResponse response,
+                                        FilterChain filterChain,
+                                        boolean isAuthPath,
+                                        Exception ex) throws IOException, ServletException {
+        if (isAuthPath && failClosedAuth) {
+            log.error("认证接口限流后端不可用，按fail-closed拒绝: path={}, err={}", request.getRequestURI(), ex.getMessage());
+            writeServiceUnavailableResponse(response);
+            return;
+        }
+        log.warn("Redis不可用，限流降级为fail-open: path={}, err={}", request.getRequestURI(), ex.getMessage());
+        filterChain.doFilter(request, response);
     }
 
     private boolean isRedisUnavailable(Throwable e) {
@@ -157,26 +163,19 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 .build();
     }
 
-    /**
-     * 提取用于 API 限流的标识：优先使用 JWT 中的 userId，否则降级到客户端 IP
-     */
     private String resolveApiKey(HttpServletRequest request) {
         try {
-            String jwt = jwtUtil.extractTokenFromHeader(
-                    request.getHeader(jwtConfig.getHeaderName()));
+            String jwt = jwtUtil.extractTokenFromHeader(request.getHeader(jwtConfig.getHeaderName()));
             if (StringUtils.hasText(jwt) && jwtUtil.validateToken(jwt)) {
                 Long userId = jwtUtil.getUserIdFromToken(jwt);
                 return "user:" + userId;
             }
         } catch (Exception ignored) {
-            // 无法解析令牌时降级到 IP
+            // 解析失败降级到IP
         }
         return "ip:" + getClientIp(request);
     }
 
-    /**
-     * 获取客户端真实 IP（兼容反向代理）
-     */
     private String getClientIp(HttpServletRequest request) {
         String ip = request.getHeader("X-Forwarded-For");
         if (StringUtils.hasText(ip) && !"unknown".equalsIgnoreCase(ip)) {
@@ -189,8 +188,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         return request.getRemoteAddr();
     }
 
-    private void writeTooManyRequestsResponse(HttpServletResponse response,
-                                               long retryAfterSeconds) throws IOException {
+    private void writeTooManyRequestsResponse(HttpServletResponse response, long retryAfterSeconds) throws IOException {
         response.setStatus(429);
         response.setContentType("application/json;charset=UTF-8");
         response.setHeader("Retry-After", String.valueOf(retryAfterSeconds));
@@ -199,6 +197,17 @@ public class RateLimitFilter extends OncePerRequestFilter {
         Result<Void> result = Result.<Void>builder()
                 .code(429)
                 .message("请求过于频繁，请稍后重试")
+                .build();
+        response.getWriter().write(objectMapper.writeValueAsString(result));
+    }
+
+    private void writeServiceUnavailableResponse(HttpServletResponse response) throws IOException {
+        response.setStatus(503);
+        response.setContentType("application/json;charset=UTF-8");
+
+        Result<Void> result = Result.<Void>builder()
+                .code(503)
+                .message("认证服务限流后端不可用，请稍后重试")
                 .build();
         response.getWriter().write(objectMapper.writeValueAsString(result));
     }

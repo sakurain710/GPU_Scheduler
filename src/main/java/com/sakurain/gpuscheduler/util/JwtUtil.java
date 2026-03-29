@@ -34,6 +34,9 @@ public class JwtUtil {
     private static final String CLAIM_USER_ID = "userId";
     private static final String CLAIM_USERNAME = "username";
     private static final String CLAIM_ROLES = "roles";
+    private static final String CLAIM_TOKEN_TYPE = "tokenType";
+    private static final String TOKEN_TYPE_ACCESS = "access";
+    private static final String TOKEN_TYPE_REFRESH = "refresh";
 
     @Autowired
     public JwtUtil(JwtConfig jwtConfig) {
@@ -54,7 +57,7 @@ public class JwtUtil {
      * @return JWT token 字符串
      */
     public String generateAccessToken(Long userId, String username, List<String> roles) {
-        return generateToken(userId, username, roles, jwtConfig.getAccessTokenExpiration());
+        return generateToken(userId, username, roles, jwtConfig.getAccessTokenExpiration(), TOKEN_TYPE_ACCESS);
     }
 
     /**
@@ -65,7 +68,7 @@ public class JwtUtil {
      * @return JWT refresh token 字符串
      */
     public String generateRefreshToken(Long userId, String username) {
-        return generateToken(userId, username, null, jwtConfig.getRefreshTokenExpiration());
+        return generateToken(userId, username, null, jwtConfig.getRefreshTokenExpiration(), TOKEN_TYPE_REFRESH);
     }
 
     /**
@@ -77,13 +80,18 @@ public class JwtUtil {
      * @param expiration 过期时间（毫秒）
      * @return JWT token 字符串
      */
-    private String generateToken(Long userId, String username, List<String> roles, Long expiration) {
+    private String generateToken(Long userId,
+                                 String username,
+                                 List<String> roles,
+                                 Long expiration,
+                                 String tokenType) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + expiration);
 
         Map<String, Object> claims = new HashMap<>();
         claims.put(CLAIM_USER_ID, userId);
         claims.put(CLAIM_USERNAME, username);
+        claims.put(CLAIM_TOKEN_TYPE, tokenType);
         if (roles != null && !roles.isEmpty()) {
             claims.put(CLAIM_ROLES, roles);
         }
@@ -211,6 +219,22 @@ public class JwtUtil {
     public Date getExpirationDateFromToken(String token) {
         Claims claims = parseToken(token);
         return claims.getExpiration();
+    }
+
+    /**
+     * 从 token 中获取令牌类型：access 或 refresh
+     */
+    public String getTokenType(String token) {
+        Claims claims = parseToken(token);
+        return claims.get(CLAIM_TOKEN_TYPE, String.class);
+    }
+
+    public boolean isAccessToken(String token) {
+        return TOKEN_TYPE_ACCESS.equals(getTokenType(token));
+    }
+
+    public boolean isRefreshToken(String token) {
+        return TOKEN_TYPE_REFRESH.equals(getTokenType(token));
     }
 
     /**

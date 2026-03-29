@@ -2,13 +2,12 @@ spring:
   application:
     name: gpu-scheduler
 
-  # Redis 配置
   data:
     redis:
-      host: ${REDIS_HOST:192.168.134.128}
+      host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
-      database: 0
+      database: ${REDIS_DB:0}
       lettuce:
         pool:
           max-active: 8
@@ -16,17 +15,14 @@ spring:
           min-idle: 0
           max-wait: -1ms
 
-  # 数据库基础配置
+  # 安全要求：数据库凭据必须由环境变量注入
   datasource:
-    # 指定 Druid 数据源类型
     type: com.alibaba.druid.pool.DruidDataSource
-    # Druid 驱动类（适配 MySQL 8.x，若用其他数据库需调整）
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: "jdbc:mysql://192.168.134.128:3306/rbac_test_db?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai"
-    username: lin
-    password: "N3w$tr0ngP@ss!"
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
 
-# MyBatis-Plus 配置
 mybatis-plus:
   mapper-locations: classpath:mapper/*.xml
   type-aliases-package: com.sakurain.gpuscheduler.entity
@@ -34,29 +30,28 @@ mybatis-plus:
     map-underscore-to-camel-case: true
     log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
 
-# JWT 配置
 jwt:
-  secret-key: ${JWT_SECRET_KEY:your-256-bit-secret-key-for-jwt-signing-must-be-at-least-32-characters-long}
-  access-token-expiration: 86400000      # 24 小时（毫秒）
-  refresh-token-expiration: 604800000    # 7 天（毫秒）
-  issuer: gpu-scheduler
+  # 安全要求：必须通过环境变量配置，不允许默认弱密钥
+  secret-key: ${JWT_SECRET_KEY}
+  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:86400000}
+  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION:604800000}
+  issuer: ${JWT_ISSUER:gpu-scheduler}
   header-name: Authorization
   token-prefix: "Bearer "
 
-# 限流配置
 rate-limit:
   login:
-    capacity: 5           # 登录接口：每 IP 每分钟最多 5 次
-    refill-duration: 60   # 令牌补充周期（秒）
-  api:
-    capacity: 100         # 通用接口：每用户/IP 每分钟最多 100 次
+    capacity: 5
     refill-duration: 60
+  api:
+    capacity: 100
+    refill-duration: 60
+  # 认证接口在Redis不可用时默认fail-closed
+  fail-closed-auth: true
 
-# 幂等性配置
 idempotency:
-  ttl: 86400              # 幂等键存活时间（秒），默认 24 小时
+  ttl: 86400
 
-# Actuator 配置
 management:
   endpoints:
     web:
@@ -70,16 +65,27 @@ management:
     tags:
       application: ${spring.application.name}
 
-# Telemetry push for dashboard websocket
 telemetry:
   topic: /topic/telemetry
   initial-delay-ms: 5000
   push-interval-ms: 3000
 
-# Task submission policy (approval + quota)
 task-submission:
   high-priority-threshold: 9
   max-active-tasks-per-user: 3
   approver-roles:
     - ROLE_ADMIN
     - ROLE_SUPER_ADMIN
+
+scheduler:
+  age-weight-per-minute: 0.1
+  refresh-interval-ms: 60000
+  aging-enabled: true
+  orphan-running-threshold-seconds: 120
+
+task-retry:
+  enabled: true
+  max-retries: 3
+  initial-backoff-seconds: 30
+  batch-size: 100
+  scan-interval-ms: 5000

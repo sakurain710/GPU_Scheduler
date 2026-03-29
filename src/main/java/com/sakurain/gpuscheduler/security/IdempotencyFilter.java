@@ -3,8 +3,11 @@ package com.sakurain.gpuscheduler.security;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sakurain.gpuscheduler.dto.Result;
 import jakarta.servlet.FilterChain;
+import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,18 +20,19 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 幂等性过滤器（防重复提交）
- * 对 POST / PUT / DELETE 请求，客户端可通过 X-Request-Id 头提供唯一键。
- * - 首次请求：正常处理，将响应体缓存到 Redis（TTL 可配置）
- * - 重复请求：直接返回缓存的响应体，HTTP 200
- * - 未携带 X-Request-Id：不做幂等处理，正常放行
- * Redis 不可用时 fail-open（记录警告，正常放行）
+ * 幂等过滤器：支持请求指纹校验，防止同一个X-Request-Id被不同请求体复用
  */
 @Slf4j
 @Component
@@ -46,7 +50,7 @@ public class IdempotencyFilter extends OncePerRequestFilter {
 
     @Autowired
     public IdempotencyFilter(RedisTemplate<String, String> redisTemplate,
-                              ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
     }
@@ -55,7 +59,6 @@ public class IdempotencyFilter extends OncePerRequestFilter {
     protected void doFilterInternal(@NonNull HttpServletRequest request,
                                     @NonNull HttpServletResponse response,
                                     @NonNull FilterChain filterChain) throws ServletException, IOException {
-        // 只处理状态变更请求
         if (!APPLICABLE_METHODS.contains(request.getMethod())) {
             filterChain.doFilter(request, response);
             return;
@@ -63,42 +66,126 @@ public class IdempotencyFilter extends OncePerRequestFilter {
 
         String requestId = request.getHeader(IDEMPOTENCY_HEADER);
         if (!StringUtils.hasText(requestId)) {
-            // 未携带幂等键，直接放行
             filterChain.doFilter(request, response);
             return;
         }
 
+        byte[] requestBody = request.getInputStream().readAllBytes();
+        CachedBodyRequest wrappedRequest = new CachedBodyRequest(request, requestBody);
+        String fingerprint = calculateFingerprint(wrappedRequest, requestBody);
+
         try {
             String redisKey = KEY_PREFIX + requestId;
-
-            // 检查是否为重复请求
             String cached = redisTemplate.opsForValue().get(redisKey);
             if (cached != null) {
-                log.info("检测到重复请求，返回缓存响应: requestId={}", requestId);
-                response.setContentType("application/json;charset=UTF-8");
-                response.setStatus(HttpServletResponse.SC_OK);
-                response.getWriter().write(cached);
+                IdempotentCachedResponse cachedResponse = objectMapper.readValue(cached, IdempotentCachedResponse.class);
+                if (!fingerprint.equals(cachedResponse.fingerprint())) {
+                    writeConflictResponse(response);
+                    return;
+                }
+
+                response.setContentType(cachedResponse.contentType());
+                response.setStatus(cachedResponse.httpStatus());
+                response.getWriter().write(cachedResponse.responseBody());
                 return;
             }
 
-            // 首次请求：包装响应以捕获响应体
             ContentCachingResponseWrapper wrappedResponse = new ContentCachingResponseWrapper(response);
-            filterChain.doFilter(request, wrappedResponse);
+            filterChain.doFilter(wrappedRequest, wrappedResponse);
 
-            // 缓存响应体到 Redis
             byte[] responseBody = wrappedResponse.getContentAsByteArray();
-            if (responseBody.length > 0) {
-                String responseBodyStr = new String(responseBody, StandardCharsets.UTF_8);
-                redisTemplate.opsForValue().set(redisKey, responseBodyStr, ttlSeconds, TimeUnit.SECONDS);
-                log.debug("响应已缓存到幂等键: requestId={}, ttl={}s", requestId, ttlSeconds);
-            }
+            String responseBodyStr = new String(responseBody, StandardCharsets.UTF_8);
+            String contentType = wrappedResponse.getContentType() != null
+                    ? wrappedResponse.getContentType()
+                    : "application/json;charset=UTF-8";
 
-            // 将响应体写回原始响应
+            IdempotentCachedResponse toCache = new IdempotentCachedResponse(
+                    fingerprint,
+                    wrappedResponse.getStatus(),
+                    contentType,
+                    responseBodyStr
+            );
+            redisTemplate.opsForValue().set(
+                    redisKey,
+                    objectMapper.writeValueAsString(toCache),
+                    ttlSeconds,
+                    TimeUnit.SECONDS
+            );
+
             wrappedResponse.copyBodyToResponse();
-
         } catch (RedisConnectionFailureException e) {
-            log.warn("Redis 不可用，跳过幂等性检查（fail-open）: {}", e.getMessage());
-            filterChain.doFilter(request, response);
+            log.warn("Redis不可用，幂等校验降级为fail-open: {}", e.getMessage());
+            filterChain.doFilter(wrappedRequest, response);
+        }
+    }
+
+    private String calculateFingerprint(HttpServletRequest request, byte[] requestBody) {
+        String query = request.getQueryString() == null ? "" : request.getQueryString();
+        String raw = request.getMethod() + "\n" + request.getRequestURI() + "\n" + query + "\n"
+                + Base64.getEncoder().encodeToString(requestBody);
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(raw.getBytes(StandardCharsets.UTF_8));
+            return Base64.getEncoder().encodeToString(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256算法不可用", e);
+        }
+    }
+
+    private void writeConflictResponse(HttpServletResponse response) throws IOException {
+        response.setStatus(409);
+        response.setContentType("application/json;charset=UTF-8");
+        Result<Void> result = Result.<Void>builder()
+                .code(409)
+                .message("X-Request-Id重复且请求内容不一致")
+                .build();
+        response.getWriter().write(objectMapper.writeValueAsString(result));
+    }
+
+    private record IdempotentCachedResponse(
+            String fingerprint,
+            int httpStatus,
+            String contentType,
+            String responseBody
+    ) {}
+
+    private static class CachedBodyRequest extends HttpServletRequestWrapper {
+        private final byte[] body;
+
+        private CachedBodyRequest(HttpServletRequest request, byte[] body) {
+            super(request);
+            this.body = body == null ? new byte[0] : body;
+        }
+
+        @Override
+        public ServletInputStream getInputStream() {
+            ByteArrayInputStream bais = new ByteArrayInputStream(body);
+            return new ServletInputStream() {
+                @Override
+                public boolean isFinished() {
+                    return bais.available() == 0;
+                }
+
+                @Override
+                public boolean isReady() {
+                    return true;
+                }
+
+                @Override
+                public void setReadListener(ReadListener readListener) {
+                    // no-op
+                }
+
+                @Override
+                public int read() {
+                    return bais.read();
+                }
+            };
+        }
+
+        @Override
+        public BufferedReader getReader() {
+            return new BufferedReader(new InputStreamReader(getInputStream(), StandardCharsets.UTF_8));
         }
     }
 }

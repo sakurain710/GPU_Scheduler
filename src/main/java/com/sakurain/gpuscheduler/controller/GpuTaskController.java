@@ -2,6 +2,7 @@ package com.sakurain.gpuscheduler.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.sakurain.gpuscheduler.dto.Result;
+import com.sakurain.gpuscheduler.dto.task.RejectTaskRequest;
 import com.sakurain.gpuscheduler.dto.task.SubmitTaskRequest;
 import com.sakurain.gpuscheduler.dto.task.TaskResponse;
 import com.sakurain.gpuscheduler.security.CustomUserDetails;
@@ -15,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -88,6 +90,35 @@ public class GpuTaskController {
         CustomUserDetails currentUser = getCurrentUserDetails();
         gpuTaskService.cancelTask(taskId, currentUser.getUserId(), currentUser.getRoleCodes());
         return Result.success();
+    }
+
+    @Operation(summary = "待审批任务列表")
+    @GetMapping("/approval/pending")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_SUPER_ADMIN')")
+    public Result<IPage<TaskResponse>> listPendingApprovals(
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "10") Integer size) {
+        return Result.success(gpuTaskService.listPendingApprovals(page, size));
+    }
+
+    @Operation(summary = "审批通过任务")
+    @PostMapping("/{taskId}/approve")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_SUPER_ADMIN')")
+    public Result<TaskResponse> approveTask(@PathVariable Long taskId) {
+        CustomUserDetails currentUser = getCurrentUserDetails();
+        TaskResponse response = gpuTaskService.approveTask(taskId, currentUser.getUserId());
+        return Result.success(response);
+    }
+
+    @Operation(summary = "审批拒绝任务")
+    @PostMapping("/{taskId}/reject")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_SUPER_ADMIN')")
+    public Result<TaskResponse> rejectTask(@PathVariable Long taskId,
+                                           @RequestBody(required = false) RejectTaskRequest request) {
+        CustomUserDetails currentUser = getCurrentUserDetails();
+        String reason = request != null ? request.getReason() : null;
+        TaskResponse response = gpuTaskService.rejectTask(taskId, currentUser.getUserId(), reason);
+        return Result.success(response);
     }
 
     private Long getCurrentUserId() {

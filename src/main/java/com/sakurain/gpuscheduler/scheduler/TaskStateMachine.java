@@ -23,11 +23,13 @@ public class TaskStateMachine {
 
     private static final Map<TaskStatus, Set<TaskStatus>> TRANSITIONS = Map.of(
             TaskStatus.PENDING,   Set.of(TaskStatus.QUEUED, TaskStatus.CANCELLED),
+            TaskStatus.PENDING_APPROVAL, Set.of(TaskStatus.QUEUED, TaskStatus.REJECTED, TaskStatus.CANCELLED),
             TaskStatus.QUEUED,    Set.of(TaskStatus.RUNNING, TaskStatus.CANCELLED),
             TaskStatus.RUNNING,   Set.of(TaskStatus.COMPLETED, TaskStatus.FAILED),
             TaskStatus.COMPLETED, Set.of(),
-            TaskStatus.FAILED,    Set.of(),
-            TaskStatus.CANCELLED, Set.of()
+            TaskStatus.FAILED,    Set.of(TaskStatus.QUEUED),
+            TaskStatus.CANCELLED, Set.of(),
+            TaskStatus.REJECTED,  Set.of()
     );
 
     /**
@@ -61,6 +63,8 @@ public class TaskStateMachine {
             case COMPLETED -> "COMPLETED";
             case FAILED    -> "FAILED";
             case CANCELLED -> "CANCELLED";
+            case PENDING_APPROVAL -> "PENDING_APPROVAL";
+            case REJECTED -> "REJECTED";
             default        -> to.getLabel().toUpperCase();
         };
     }

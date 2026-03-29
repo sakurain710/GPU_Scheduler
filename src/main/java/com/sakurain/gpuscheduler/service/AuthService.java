@@ -8,7 +8,7 @@ import com.sakurain.gpuscheduler.entity.User;
 import com.sakurain.gpuscheduler.exception.InvalidTokenException;
 import com.sakurain.gpuscheduler.exception.ResourceNotFoundException;
 import com.sakurain.gpuscheduler.exception.UserDisabledException;
-import com.sakurain.gpuscheduler.service.TokenBlacklistService;import com.sakurain.gpuscheduler.mapper.RoleMapper;
+import com.sakurain.gpuscheduler.mapper.RoleMapper;
 import com.sakurain.gpuscheduler.mapper.UserMapper;
 import com.sakurain.gpuscheduler.security.CustomUserDetails;
 import com.sakurain.gpuscheduler.util.JwtUtil;
@@ -58,7 +58,6 @@ public class AuthService {
         log.info("用户尝试登录: username={}", request.getUsername());
 
         try {
-            // 执行认证
             Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
                             request.getUsername(),
@@ -66,13 +65,11 @@ public class AuthService {
                     )
             );
 
-            // 获取用户详情
             CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
             Long userId = userDetails.getUserId();
             String username = userDetails.getUsername();
             List<String> roles = userDetails.getRoleCodes();
 
-            // 生成 JWT tokens
             String accessToken = jwtUtil.generateAccessToken(userId, username, roles);
             String refreshToken = jwtUtil.generateRefreshToken(userId, username);
 
@@ -82,7 +79,7 @@ public class AuthService {
                     .accessToken(accessToken)
                     .refreshToken(refreshToken)
                     .tokenType("Bearer")
-                    .expiresIn(86400L) // 24小时
+                    .expiresIn(86400L)
                     .userId(userId)
                     .username(username)
                     .roles(roles)
@@ -97,29 +94,28 @@ public class AuthService {
     }
 
     /**
-     * 刷新令牌
+     * 刷新令牌（含 refresh token 轮换）
      */
     public LoginResponse refreshToken(String refreshToken) {
         log.info("尝试刷新令牌");
 
         try {
-            // 验证 refresh token
             if (!jwtUtil.validateToken(refreshToken)) {
                 log.warn("令牌刷新失败 - 无效的刷新令牌");
                 throw new InvalidTokenException("无效的刷新令牌");
             }
-
-            // 检查刷新令牌是否已被吊销
+            if (!jwtUtil.isRefreshToken(refreshToken)) {
+                log.warn("令牌刷新失败 - 令牌类型不是refresh");
+                throw new InvalidTokenException("令牌类型错误");
+            }
             if (tokenBlacklistService.isBlacklisted(refreshToken)) {
                 log.warn("令牌刷新失败 - 刷新令牌已被吊销");
                 throw new InvalidTokenException("刷新令牌已被吊销");
             }
 
-            // 从 token 中获取用户信息
             Long userId = jwtUtil.getUserIdFromToken(refreshToken);
             String username = jwtUtil.getUsernameFromToken(refreshToken);
 
-            // 验证用户是否存在且状态正常
             User user = userMapper.selectById(userId);
             if (user == null) {
                 log.warn("令牌刷新失败 - 用户不存在: userId={}", userId);
@@ -130,15 +126,14 @@ public class AuthService {
                 throw new UserDisabledException("用户已被禁用");
             }
 
-            // 查询用户角色
             List<Role> roles = roleMapper.selectByUserId(userId);
-            List<String> roleCodes = roles.stream()
-                    .map(Role::getCode)
-                    .collect(Collectors.toList());
+            List<String> roleCodes = roles.stream().map(Role::getCode).collect(Collectors.toList());
 
-            // 生成新的 tokens
             String newAccessToken = jwtUtil.generateAccessToken(userId, username, roleCodes);
             String newRefreshToken = jwtUtil.generateRefreshToken(userId, username);
+
+            // 刷新令牌轮换：旧refresh令牌立刻拉黑
+            tokenBlacklistService.blacklistToken(refreshToken, jwtUtil.getExpirationDateFromToken(refreshToken));
 
             log.info("令牌刷新成功: userId={}, username={}", userId, username);
 
@@ -161,22 +156,16 @@ public class AuthService {
 
     /**
      * 用户登出
-     * 将访问令牌和刷新令牌加入黑名单，并清空 SecurityContext
-     *
-     * @param accessToken  访问令牌
-     * @param refreshToken 刷新令牌（可选）
      */
     public void logout(String accessToken, String refreshToken) {
         if (StringUtils.hasText(accessToken) && jwtUtil.validateToken(accessToken)) {
             Long userId = jwtUtil.getUserIdFromToken(accessToken);
             log.info("用户登出: userId={}", userId);
-            tokenBlacklistService.blacklistToken(accessToken,
-                    jwtUtil.getExpirationDateFromToken(accessToken));
+            tokenBlacklistService.blacklistToken(accessToken, jwtUtil.getExpirationDateFromToken(accessToken));
         }
 
         if (StringUtils.hasText(refreshToken) && jwtUtil.validateToken(refreshToken)) {
-            tokenBlacklistService.blacklistToken(refreshToken,
-                    jwtUtil.getExpirationDateFromToken(refreshToken));
+            tokenBlacklistService.blacklistToken(refreshToken, jwtUtil.getExpirationDateFromToken(refreshToken));
         }
 
         SecurityContextHolder.clearContext();
@@ -196,22 +185,14 @@ public class AuthService {
         CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
         Long userId = userDetails.getUserId();
 
-        log.debug("获取当前用户信息: userId={}", userId);
-
-        // 查询用户信息
         User user = userMapper.selectById(userId);
         if (user == null) {
             log.error("获取当前用户失败 - 用户不存在: userId={}", userId);
             throw new ResourceNotFoundException("用户不存在");
         }
 
-        // 查询用户角色
         List<Role> roles = roleMapper.selectByUserId(userId);
-        List<String> roleCodes = roles.stream()
-                .map(Role::getCode)
-                .collect(Collectors.toList());
-
-        log.debug("当前用户信息获取成功: userId={}, username={}", userId, user.getUsername());
+        List<String> roleCodes = roles.stream().map(Role::getCode).collect(Collectors.toList());
 
         return UserResponse.builder()
                 .id(user.getId())

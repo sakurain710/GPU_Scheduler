@@ -15,7 +15,9 @@ public enum TaskStatus {
     RUNNING(3, "Running"),
     COMPLETED(4, "Completed"),
     FAILED(5, "Failed"),
-    CANCELLED(6, "Cancelled");
+    CANCELLED(6, "Cancelled"),
+    PENDING_APPROVAL(7, "Pending Approval"),
+    REJECTED(8, "Rejected");
 
     private final int code;
     private final String label;
@@ -36,6 +38,6 @@ public enum TaskStatus {
      * 是否为终态（不可再转换）
      */
     public boolean isTerminal() {
-        return this == COMPLETED || this == FAILED || this == CANCELLED;
+        return this == COMPLETED || this == FAILED || this == CANCELLED || this == REJECTED;
     }
 }

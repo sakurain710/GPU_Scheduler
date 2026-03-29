@@ -23,7 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 /**
- * GPU任务服务 — 提交、入队、状态转换
+ * GPU任务服务
  */
 @Slf4j
 @Service
@@ -50,19 +50,21 @@ public class GpuTaskService {
         this.submissionPolicy = submissionPolicy;
     }
 
-    /**
-     * 提交任务 — 持久化为PENDING，然后立即转换为QUEUED并入队Redis
-     */
     @Transactional
     public TaskResponse submitTask(SubmitTaskRequest request, Long userId) {
         return submitTask(request, userId, List.of());
     }
 
+    /**
+     * 提交任务：
+     * 1) 普通任务直接入队
+     * 2) 高优先级且无审批权限的任务进入待审批状态
+     */
     @Transactional
     public TaskResponse submitTask(SubmitTaskRequest request, Long userId, List<String> roleCodes) {
         validateSubmissionPolicy(request, userId, roleCodes);
+        boolean requiresApproval = isApprovalRequired(request, roleCodes);
 
-        // 1. 构建实体，初始状态 PENDING
         GpuTask task = GpuTask.builder()
                 .userId(userId)
                 .title(request.getTitle())
@@ -71,38 +73,29 @@ public class GpuTaskService {
                 .minMemoryGb(request.getMinMemoryGb())
                 .computeUnitsGflop(request.getComputeUnitsGflop())
                 .basePriority(request.getBasePriority() != null ? request.getBasePriority() : 5)
-                .status(TaskStatus.PENDING.getCode())
+                .status(requiresApproval ? TaskStatus.PENDING_APPROVAL.getCode() : TaskStatus.PENDING.getCode())
                 .build();
         taskMapper.insert(task);
-        log.info("任务已创建: taskId={}, userId={}", task.getId(), userId);
 
-        // 2. PENDING → QUEUED，入队Redis
-        transition(task.getId(), TaskStatus.QUEUED, null, userId);
+        if (requiresApproval) {
+            writeAudit(task.getId(), null, TaskStatus.PENDING_APPROVAL, TaskStatus.PENDING_APPROVAL, userId);
+        } else {
+            transition(task.getId(), TaskStatus.QUEUED, null, userId);
+        }
 
-        // 3. 重新查询完整数据返回
-        GpuTask saved = taskMapper.selectById(task.getId());
-        return toResponse(saved);
+        return toResponse(taskMapper.selectById(task.getId()));
     }
 
-    /**
-     * 通用状态转换 — 校验合法性、更新DB、写审计日志、联动Redis队列
-     *
-     * @param taskId     任务ID
-     * @param target     目标状态
-     * @param gpuId      关联GPU（仅RUNNING时需要）
-     * @param operatorId 操作者用户ID
-     */
     @Transactional
     public void transition(Long taskId, TaskStatus target, Long gpuId, Long operatorId) {
         GpuTask task = taskMapper.selectById(taskId);
         if (task == null) {
-            throw new ResourceNotFoundException("任务不存在: " + taskId);
+            throw new ResourceNotFoundException("Task not found: " + taskId);
         }
 
         TaskStatus from = TaskStatus.fromCode(task.getStatus());
         stateMachine.validateTransition(from, target);
 
-        // 更新DB状态
         task.setStatus(target.getCode());
         if (target == TaskStatus.QUEUED) {
             task.setEnqueueAt(java.time.LocalDateTime.now());
@@ -116,37 +109,20 @@ public class GpuTaskService {
         }
         taskMapper.updateById(task);
 
-        // 联动Redis队列
         if (target == TaskStatus.QUEUED) {
-            // 使用有效优先级（包含老化加成）入队
             double effectivePriority = agingScheduler.calculateEffectivePriority(task);
             priorityQueue.enqueue(taskId, effectivePriority);
         } else if (from == TaskStatus.QUEUED) {
-            // 从QUEUED转出时，移除队列
             priorityQueue.remove(taskId);
         }
 
-        // 写审计日志
-        GpuTaskLog logEntry = GpuTaskLog.builder()
-                .taskId(taskId)
-                .gpuId(gpuId)
-                .event(stateMachine.resolveEvent(target))
-                .oldStatus(from.getCode())
-                .newStatus(target.getCode())
-                .operatorId(operatorId)
-                .build();
-        taskLogMapper.insert(logEntry);
-
-        log.info("任务状态转换: taskId={}, {} -> {}", taskId, from.getLabel(), target.getLabel());
+        writeAudit(taskId, gpuId, from, target, operatorId);
     }
 
-    /**
-     * 根据ID查询任务
-     */
     public TaskResponse getTask(Long taskId) {
         GpuTask task = taskMapper.selectById(taskId);
         if (task == null) {
-            throw new ResourceNotFoundException("任务不存在: " + taskId);
+            throw new ResourceNotFoundException("Task not found: " + taskId);
         }
         return toResponse(task);
     }
@@ -180,28 +156,45 @@ public class GpuTaskService {
             wrapper.eq(GpuTask::getStatus, status);
         }
 
-        IPage<GpuTask> taskPage = taskMapper.selectPage(pageParam, wrapper);
-        return taskPage.convert(this::toResponse);
+        return taskMapper.selectPage(pageParam, wrapper).convert(this::toResponse);
+    }
+
+    /**
+     * 审批人查看待审批任务
+     */
+    public IPage<TaskResponse> listPendingApprovals(Integer page, Integer size) {
+        Page<GpuTask> pageParam = new Page<>(page, size);
+        LambdaQueryWrapper<GpuTask> wrapper = new LambdaQueryWrapper<GpuTask>()
+                .eq(GpuTask::getStatus, TaskStatus.PENDING_APPROVAL.getCode())
+                .orderByAsc(GpuTask::getCreatedAt);
+        return taskMapper.selectPage(pageParam, wrapper).convert(this::toResponse);
+    }
+
+    @Transactional
+    public TaskResponse approveTask(Long taskId, Long approverId) {
+        transition(taskId, TaskStatus.QUEUED, null, approverId);
+        return getTask(taskId);
+    }
+
+    @Transactional
+    public TaskResponse rejectTask(Long taskId, Long approverId, String reason) {
+        if (reason != null && !reason.isBlank()) {
+            GpuTask update = new GpuTask();
+            update.setId(taskId);
+            update.setErrorMessage(reason);
+            taskMapper.updateById(update);
+        }
+        transition(taskId, TaskStatus.REJECTED, null, approverId);
+        return getTask(taskId);
     }
 
     private void validateSubmissionPolicy(SubmitTaskRequest request, Long userId, List<String> roleCodes) {
-        int priority = request.getBasePriority() != null ? request.getBasePriority() : 5;
-        boolean hasApprovalRole = roleCodes != null
-                && roleCodes.stream().anyMatch(submissionPolicy.getApproverRoles()::contains);
-
-        if (priority >= submissionPolicy.getHighPriorityThreshold() && !hasApprovalRole) {
-            throw new BusinessException(
-                    "TASK_APPROVAL_REQUIRED",
-                    "High-priority tasks require ADMIN approval role",
-                    403
-            );
-        }
-
-        if (!hasApprovalRole) {
+        if (!hasApprovalRole(roleCodes)) {
             Long activeTaskCount = taskMapper.selectCount(new LambdaQueryWrapper<GpuTask>()
                     .eq(GpuTask::getUserId, userId)
                     .in(GpuTask::getStatus,
                             TaskStatus.PENDING.getCode(),
+                            TaskStatus.PENDING_APPROVAL.getCode(),
                             TaskStatus.QUEUED.getCode(),
                             TaskStatus.RUNNING.getCode()));
 
@@ -215,12 +208,32 @@ public class GpuTaskService {
         }
     }
 
+    private boolean isApprovalRequired(SubmitTaskRequest request, List<String> roleCodes) {
+        int priority = request.getBasePriority() != null ? request.getBasePriority() : 5;
+        return priority >= submissionPolicy.getHighPriorityThreshold() && !hasApprovalRole(roleCodes);
+    }
+
+    private boolean hasApprovalRole(List<String> roleCodes) {
+        return roleCodes != null && roleCodes.stream().anyMatch(submissionPolicy.getApproverRoles()::contains);
+    }
+
     private void validateTaskOwnerOrApprover(GpuTask task, Long requesterId, List<String> roleCodes) {
-        boolean hasApprovalRole = roleCodes != null
-                && roleCodes.stream().anyMatch(submissionPolicy.getApproverRoles()::contains);
+        boolean hasApprovalRole = hasApprovalRole(roleCodes);
         if (!hasApprovalRole && !task.getUserId().equals(requesterId)) {
             throw new BusinessException("TASK_FORBIDDEN", "No permission to access this task", 403);
         }
+    }
+
+    private void writeAudit(Long taskId, Long gpuId, TaskStatus oldStatus, TaskStatus newStatus, Long operatorId) {
+        GpuTaskLog logEntry = GpuTaskLog.builder()
+                .taskId(taskId)
+                .gpuId(gpuId)
+                .event(stateMachine.resolveEvent(newStatus))
+                .oldStatus(oldStatus.getCode())
+                .newStatus(newStatus.getCode())
+                .operatorId(operatorId)
+                .build();
+        taskLogMapper.insert(logEntry);
     }
 
     private TaskResponse toResponse(GpuTask task) {
