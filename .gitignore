@@ -33,3 +33,4 @@ build/
 /CLAUDE.md
 /.claude/settings.local.json
 /Functions Llist.md
+/env.env
