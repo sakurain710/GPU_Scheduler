@@ -6,7 +6,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 任务状态机单元测试
@@ -19,10 +23,15 @@ class TaskStateMachineTest {
     @CsvSource({
             "PENDING, QUEUED",
             "PENDING, CANCELLED",
+            "PENDING_APPROVAL, QUEUED",
+            "PENDING_APPROVAL, REJECTED",
+            "PENDING_APPROVAL, CANCELLED",
             "QUEUED, RUNNING",
             "QUEUED, CANCELLED",
             "RUNNING, COMPLETED",
-            "RUNNING, FAILED"
+            "RUNNING, FAILED",
+            "RUNNING, QUEUED",
+            "FAILED, QUEUED"
     })
     void validTransitions(TaskStatus from, TaskStatus to) {
         assertTrue(stateMachine.canTransition(from, to));
@@ -37,15 +46,13 @@ class TaskStateMachineTest {
             "QUEUED, COMPLETED",
             "QUEUED, FAILED",
             "QUEUED, PENDING",
-            "RUNNING, QUEUED",
             "RUNNING, PENDING",
             "RUNNING, CANCELLED",
             "COMPLETED, PENDING",
             "COMPLETED, RUNNING",
-            "FAILED, PENDING",
-            "FAILED, QUEUED",
             "CANCELLED, PENDING",
-            "CANCELLED, QUEUED"
+            "CANCELLED, QUEUED",
+            "REJECTED, QUEUED"
     })
     void invalidTransitions(TaskStatus from, TaskStatus to) {
         assertFalse(stateMachine.canTransition(from, to));
@@ -54,13 +61,17 @@ class TaskStateMachineTest {
     }
 
     @Test
-    void terminalStatesHaveNoTransitions() {
-        for (TaskStatus terminal : new TaskStatus[]{TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}) {
-            assertTrue(terminal.isTerminal());
+    void noOutgoingTransitionsStates() {
+        for (TaskStatus status : new TaskStatus[]{TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.REJECTED}) {
             for (TaskStatus target : TaskStatus.values()) {
-                assertFalse(stateMachine.canTransition(terminal, target));
+                assertFalse(stateMachine.canTransition(status, target));
             }
         }
+    }
+
+    @Test
+    void failedCanRequeue() {
+        assertTrue(stateMachine.canTransition(TaskStatus.FAILED, TaskStatus.QUEUED));
     }
 
     @Test
@@ -70,5 +81,7 @@ class TaskStateMachineTest {
         assertEquals("COMPLETED", stateMachine.resolveEvent(TaskStatus.COMPLETED));
         assertEquals("FAILED", stateMachine.resolveEvent(TaskStatus.FAILED));
         assertEquals("CANCELLED", stateMachine.resolveEvent(TaskStatus.CANCELLED));
+        assertEquals("PENDING_APPROVAL", stateMachine.resolveEvent(TaskStatus.PENDING_APPROVAL));
+        assertEquals("REJECTED", stateMachine.resolveEvent(TaskStatus.REJECTED));
     }
 }

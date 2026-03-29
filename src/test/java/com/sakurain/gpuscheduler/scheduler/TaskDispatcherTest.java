@@ -5,6 +5,7 @@ import com.sakurain.gpuscheduler.entity.GpuTask;
 import com.sakurain.gpuscheduler.enums.GpuStatus;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
+import com.sakurain.gpuscheduler.service.TaskPreemptionService;
 import com.sakurain.gpuscheduler.util.RedisLockService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,12 +13,22 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.util.Optional;
 
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * 任务调度器测试
@@ -40,15 +51,24 @@ class TaskDispatcherTest {
     @Mock
     private TaskAssignmentService assignmentService;
 
+    @Mock
+    private TaskAgingScheduler agingScheduler;
+
+    @Mock
+    private TaskPreemptionService taskPreemptionService;
+
     @InjectMocks
     private TaskDispatcher dispatcher;
 
     private GpuTask queuedTask;
     private Gpu idleGpu;
 
+    private static final int MAX_CONSECUTIVE_FAILURES = 5;
+
     @BeforeEach
     void setUp() {
-        when(lockService.tryLock(anyString(), anyString(), anyLong(), any())).thenReturn(true);
+        lenient().when(lockService.tryLock(anyString(), anyString(), anyLong(), any())).thenReturn(true);
+        ReflectionTestUtils.setField(dispatcher, "scheduledJobsEnabled", true);
 
         queuedTask = GpuTask.builder()
                 .id(100L)
@@ -87,6 +107,8 @@ class TaskDispatcherTest {
         when(priorityQueue.dequeue()).thenReturn(100L);
         when(taskMapper.selectById(100L)).thenReturn(queuedTask);
         when(gpuAllocator.allocate(queuedTask)).thenReturn(Optional.empty());
+        when(taskPreemptionService.tryPreemptFor(queuedTask)).thenReturn(false);
+        when(agingScheduler.calculateEffectivePriority(queuedTask)).thenReturn(5.0);
 
         dispatcher.dispatchOnce();
 
@@ -171,27 +193,27 @@ class TaskDispatcherTest {
         verify(assignmentService, times(1)).assign(task2, gpu2);
     }
 
-
     @Test
     void testDispatch_AllocationFailure_BreaksCurrentLoopToAvoidHotRetry() {
         when(priorityQueue.dequeue()).thenReturn(100L, 100L, null);
         when(taskMapper.selectById(100L)).thenReturn(queuedTask);
         when(gpuAllocator.allocate(queuedTask)).thenReturn(Optional.of(idleGpu));
-        doThrow(new RuntimeException("Database error"))
-                .when(assignmentService).assign(any(), any());
+        when(agingScheduler.calculateEffectivePriority(queuedTask)).thenReturn(5.0);
+        doThrow(new RuntimeException("Database error")).when(assignmentService).assign(any(), any());
 
         dispatcher.dispatchOnce();
 
         verify(priorityQueue, times(1)).dequeue();
         verify(priorityQueue, times(1)).enqueue(eq(100L), anyDouble());
     }
+
     @Test
     void testDispatch_AllocationFailure() {
         when(priorityQueue.dequeue()).thenReturn(100L, (Long) null);
         when(taskMapper.selectById(100L)).thenReturn(queuedTask);
         when(gpuAllocator.allocate(queuedTask)).thenReturn(Optional.of(idleGpu));
-        doThrow(new RuntimeException("Database error"))
-                .when(assignmentService).assign(any(), any());
+        when(agingScheduler.calculateEffectivePriority(queuedTask)).thenReturn(5.0);
+        doThrow(new RuntimeException("Database error")).when(assignmentService).assign(any(), any());
 
         dispatcher.dispatchOnce();
 
@@ -211,20 +233,18 @@ class TaskDispatcherTest {
 
     @Test
     void testDispatch_ExponentialBackoff_TriggersAfterMaxFailures() {
-        // 连续5次无可用GPU，触发熔断
         when(priorityQueue.dequeue()).thenReturn(100L);
         when(taskMapper.selectById(100L)).thenReturn(queuedTask);
         when(gpuAllocator.allocate(queuedTask)).thenReturn(Optional.empty());
+        when(taskPreemptionService.tryPreemptFor(queuedTask)).thenReturn(false);
+        when(agingScheduler.calculateEffectivePriority(queuedTask)).thenReturn(5.0);
 
         for (int i = 0; i < MAX_CONSECUTIVE_FAILURES; i++) {
             dispatcher.dispatchOnce();
         }
 
-        // 第6次调度应被退避跳过（不获取锁，不出队）
         dispatcher.dispatchOnce();
-        // dequeue 只被调用了 MAX_CONSECUTIVE_FAILURES 次，第6次被退避拦截
+
         verify(priorityQueue, times(MAX_CONSECUTIVE_FAILURES)).dequeue();
     }
-
-    private static final int MAX_CONSECUTIVE_FAILURES = 5;
 }
