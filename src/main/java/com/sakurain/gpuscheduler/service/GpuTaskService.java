@@ -8,9 +8,11 @@ import com.sakurain.gpuscheduler.dto.task.SubmitTaskRequest;
 import com.sakurain.gpuscheduler.dto.task.TaskResponse;
 import com.sakurain.gpuscheduler.entity.GpuTask;
 import com.sakurain.gpuscheduler.entity.GpuTaskLog;
+import com.sakurain.gpuscheduler.enums.GpuStatus;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.exception.BusinessException;
 import com.sakurain.gpuscheduler.exception.ResourceNotFoundException;
+import com.sakurain.gpuscheduler.mapper.GpuMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskLogMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
 import com.sakurain.gpuscheduler.scheduler.TaskAgingScheduler;
@@ -30,24 +32,33 @@ import java.util.List;
 public class GpuTaskService {
 
     private final GpuTaskMapper taskMapper;
+    private final GpuMapper gpuMapper;
     private final GpuTaskLogMapper taskLogMapper;
     private final TaskStateMachine stateMachine;
     private final TaskPriorityQueue priorityQueue;
     private final TaskAgingScheduler agingScheduler;
     private final TaskSubmissionPolicyConfig submissionPolicy;
+    private final TaskNotificationService taskNotificationService;
+    private final UserQuotaService userQuotaService;
 
     public GpuTaskService(GpuTaskMapper taskMapper,
+                          GpuMapper gpuMapper,
                           GpuTaskLogMapper taskLogMapper,
                           TaskStateMachine stateMachine,
                           TaskPriorityQueue priorityQueue,
                           TaskAgingScheduler agingScheduler,
-                          TaskSubmissionPolicyConfig submissionPolicy) {
+                          TaskSubmissionPolicyConfig submissionPolicy,
+                          TaskNotificationService taskNotificationService,
+                          UserQuotaService userQuotaService) {
         this.taskMapper = taskMapper;
+        this.gpuMapper = gpuMapper;
         this.taskLogMapper = taskLogMapper;
         this.stateMachine = stateMachine;
         this.priorityQueue = priorityQueue;
         this.agingScheduler = agingScheduler;
         this.submissionPolicy = submissionPolicy;
+        this.taskNotificationService = taskNotificationService;
+        this.userQuotaService = userQuotaService;
     }
 
     @Transactional
@@ -99,6 +110,10 @@ public class GpuTaskService {
         task.setStatus(target.getCode());
         if (target == TaskStatus.QUEUED) {
             task.setEnqueueAt(java.time.LocalDateTime.now());
+            // 支持抢占后重入队：清理运行态字段
+            task.setGpuId(null);
+            task.setDispatchedAt(null);
+            task.setEstimatedFinishAt(null);
         }
         if (target == TaskStatus.RUNNING && gpuId != null) {
             task.setGpuId(gpuId);
@@ -117,6 +132,13 @@ public class GpuTaskService {
         }
 
         writeAudit(taskId, gpuId, from, target, operatorId);
+        taskNotificationService.notifyTaskStatus(
+                taskId,
+                task.getUserId(),
+                from,
+                target,
+                task.getErrorMessage()
+        );
     }
 
     public TaskResponse getTask(Long taskId) {
@@ -188,8 +210,65 @@ public class GpuTaskService {
         return getTask(taskId);
     }
 
+    /**
+     * 抢占运行任务并重入队
+     */
+    @Transactional
+    public TaskResponse preemptTask(Long taskId, Long operatorId, String reason) {
+        GpuTask task = taskMapper.selectById(taskId);
+        if (task == null) {
+            throw new ResourceNotFoundException("Task not found: " + taskId);
+        }
+        if (!TaskStatus.RUNNING.equals(TaskStatus.fromCode(task.getStatus()))) {
+            throw new BusinessException("TASK_NOT_RUNNING", "Only RUNNING task can be preempted", 400);
+        }
+
+        Long gpuId = task.getGpuId();
+        if (reason != null && !reason.isBlank()) {
+            GpuTask update = new GpuTask();
+            update.setId(taskId);
+            update.setErrorMessage(reason);
+            taskMapper.updateById(update);
+        }
+        transition(taskId, TaskStatus.QUEUED, null, operatorId);
+        if (gpuId != null) {
+            gpuMapper.tryMarkIdle(gpuId, GpuStatus.BUSY.getCode(), GpuStatus.IDLE.getCode());
+        }
+        return getTask(taskId);
+    }
+
+    /**
+     * 强制将运行任务置为失败（用于运维兜底）
+     */
+    @Transactional
+    public TaskResponse forceFailTask(Long taskId, Long operatorId, String reason) {
+        GpuTask task = taskMapper.selectById(taskId);
+        if (task == null) {
+            throw new ResourceNotFoundException("Task not found: " + taskId);
+        }
+        TaskStatus status = TaskStatus.fromCode(task.getStatus());
+        if (status != TaskStatus.RUNNING) {
+            throw new BusinessException("TASK_NOT_RUNNING", "Only RUNNING task can be force-failed", 400);
+        }
+
+        if (reason != null && !reason.isBlank()) {
+            GpuTask update = new GpuTask();
+            update.setId(taskId);
+            update.setErrorMessage(reason);
+            taskMapper.updateById(update);
+        }
+
+        Long gpuId = task.getGpuId();
+        transition(taskId, TaskStatus.FAILED, gpuId, operatorId);
+        if (gpuId != null) {
+            gpuMapper.tryMarkIdle(gpuId, GpuStatus.BUSY.getCode(), GpuStatus.IDLE.getCode());
+        }
+        return getTask(taskId);
+    }
+
     private void validateSubmissionPolicy(SubmitTaskRequest request, Long userId, List<String> roleCodes) {
-        if (!hasApprovalRole(roleCodes)) {
+        boolean approverRole = hasApprovalRole(roleCodes);
+        if (!approverRole) {
             Long activeTaskCount = taskMapper.selectCount(new LambdaQueryWrapper<GpuTask>()
                     .eq(GpuTask::getUserId, userId)
                     .in(GpuTask::getStatus,
@@ -206,6 +285,8 @@ public class GpuTaskService {
                 );
             }
         }
+
+        userQuotaService.assertWithinQuota(userId, request, approverRole);
     }
 
     private boolean isApprovalRequired(SubmitTaskRequest request, List<String> roleCodes) {

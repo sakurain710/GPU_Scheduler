@@ -40,17 +40,20 @@ public class MonitoringService {
     private final TaskPriorityQueue priorityQueue;
     private final CircuitBreakerService circuitBreaker;
     private final RedisTemplate<String, String> redisTemplate;
+    private final TaskRetryDlqService retryDlqService;
 
     public MonitoringService(GpuTaskMapper gpuTaskMapper,
                              GpuMapper gpuMapper,
                              TaskPriorityQueue priorityQueue,
                              CircuitBreakerService circuitBreaker,
-                             RedisTemplate<String, String> redisTemplate) {
+                             RedisTemplate<String, String> redisTemplate,
+                             TaskRetryDlqService retryDlqService) {
         this.gpuTaskMapper = gpuTaskMapper;
         this.gpuMapper = gpuMapper;
         this.priorityQueue = priorityQueue;
         this.circuitBreaker = circuitBreaker;
         this.redisTemplate = redisTemplate;
+        this.retryDlqService = retryDlqService;
     }
 
     // ── Task Metrics ──────────────────────────────────────────────────────────
@@ -121,6 +124,8 @@ public class MonitoringService {
                                 : t.getErrorMessage(),
                         Collectors.counting()));
 
+        long pendingApprovalCount = countByStatus.getOrDefault(TaskStatus.PENDING_APPROVAL.getLabel(), 0L);
+
         return TaskMetrics.builder()
                 .queueLength(priorityQueue.size())
                 .queueLengthByPriority(queueLengthByPriority)
@@ -131,6 +136,9 @@ public class MonitoringService {
                 .completionRate(completionRate)
                 .failureRate(failureRate)
                 .failureReasons(failureReasons)
+                .retryQueueSize(retryDlqService.retryQueueSize())
+                .dlqSize(retryDlqService.dlqSize())
+                .pendingApprovalCount(pendingApprovalCount)
                 .build();
     }
 

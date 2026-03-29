@@ -4,6 +4,7 @@ import com.sakurain.gpuscheduler.entity.Gpu;
 import com.sakurain.gpuscheduler.entity.GpuTask;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
+import com.sakurain.gpuscheduler.service.TaskPreemptionService;
 import com.sakurain.gpuscheduler.util.RedisLockService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -31,6 +32,7 @@ public class TaskDispatcher {
     private final RedisLockService lockService;
     private final TaskAssignmentService assignmentService;
     private final TaskAgingScheduler agingScheduler;
+    private final TaskPreemptionService taskPreemptionService;
 
     private int consecutiveFailures = 0;
     private int backoffRoundsRemaining = 0;
@@ -42,13 +44,15 @@ public class TaskDispatcher {
                           GpuTaskMapper taskMapper,
                           RedisLockService lockService,
                           TaskAssignmentService assignmentService,
-                          TaskAgingScheduler agingScheduler) {
+                          TaskAgingScheduler agingScheduler,
+                          TaskPreemptionService taskPreemptionService) {
         this.priorityQueue = priorityQueue;
         this.gpuAllocator = gpuAllocator;
         this.taskMapper = taskMapper;
         this.lockService = lockService;
         this.assignmentService = assignmentService;
         this.agingScheduler = agingScheduler;
+        this.taskPreemptionService = taskPreemptionService;
     }
 
     @Scheduled(fixedDelay = 5000, initialDelay = 10000)
@@ -80,8 +84,13 @@ public class TaskDispatcher {
 
                 Optional<Gpu> gpuOpt = gpuAllocator.allocate(task);
                 if (gpuOpt.isEmpty()) {
+                    boolean preempted = taskPreemptionService.tryPreemptFor(task);
                     requeueWithEffectivePriority(task);
-                    onFailure();
+                    if (!preempted) {
+                        onFailure();
+                    } else {
+                        consecutiveFailures = 0;
+                    }
                     break;
                 }
 

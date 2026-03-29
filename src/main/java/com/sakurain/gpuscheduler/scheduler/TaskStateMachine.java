@@ -25,7 +25,7 @@ public class TaskStateMachine {
             TaskStatus.PENDING,   Set.of(TaskStatus.QUEUED, TaskStatus.CANCELLED),
             TaskStatus.PENDING_APPROVAL, Set.of(TaskStatus.QUEUED, TaskStatus.REJECTED, TaskStatus.CANCELLED),
             TaskStatus.QUEUED,    Set.of(TaskStatus.RUNNING, TaskStatus.CANCELLED),
-            TaskStatus.RUNNING,   Set.of(TaskStatus.COMPLETED, TaskStatus.FAILED),
+            TaskStatus.RUNNING,   Set.of(TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.QUEUED),
             TaskStatus.COMPLETED, Set.of(),
             TaskStatus.FAILED,    Set.of(TaskStatus.QUEUED),
             TaskStatus.CANCELLED, Set.of(),

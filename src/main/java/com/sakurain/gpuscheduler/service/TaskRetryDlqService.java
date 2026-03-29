@@ -105,6 +105,47 @@ public class TaskRetryDlqService {
         return redisTemplate.opsForList().range(DLQ_KEY, 0, Math.max(0, limit - 1));
     }
 
+    public long retryQueueSize() {
+        Long size = redisTemplate.opsForZSet().size(RETRY_SCHEDULE_KEY);
+        return size != null ? size : 0L;
+    }
+
+    public long dlqSize() {
+        Long size = redisTemplate.opsForList().size(DLQ_KEY);
+        return size != null ? size : 0L;
+    }
+
+    public long clearDlq() {
+        Boolean removed = redisTemplate.delete(DLQ_KEY);
+        return Boolean.TRUE.equals(removed) ? 1L : 0L;
+    }
+
+    /**
+     * 从死信队列中移除并重入队指定任务
+     */
+    public boolean reprocessDlqTask(Long taskId) {
+        List<String> items = listDlq(1000);
+        if (items == null || items.isEmpty()) {
+            return false;
+        }
+        String marker = "\"taskId\":" + taskId;
+        for (String item : items) {
+            if (item != null && item.contains(marker)) {
+                Long removed = redisTemplate.opsForList().remove(DLQ_KEY, 1, item);
+                if (removed != null && removed > 0) {
+                    redisTemplate.opsForHash().delete(RETRY_COUNT_KEY, taskId.toString());
+                    try {
+                        taskService.transition(taskId, TaskStatus.QUEUED, null, null);
+                        return true;
+                    } catch (Exception ex) {
+                        onTaskFailed(taskId, ex.getMessage());
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     private void pushToDlq(Long taskId, String reason, long attempt) {
         String payload = String.format(
                 "{\"taskId\":%d,\"attempt\":%d,\"reason\":\"%s\",\"time\":\"%s\"}",
@@ -125,4 +166,3 @@ public class TaskRetryDlqService {
         return input.replace("\"", "'");
     }
 }
-
