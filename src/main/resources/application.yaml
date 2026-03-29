@@ -90,13 +90,6 @@ task-retry:
   batch-size: 100
   scan-interval-ms: 5000
 
-task-quota:
-  enabled: true
-  monthly-max-gpu-seconds: 200000
-  monthly-max-memory-gb-seconds: 2000000
-  approver-bypass: true
-  default-estimated-seconds: 600
-
 task-preemption:
   enabled: true
   trigger-priority: 9

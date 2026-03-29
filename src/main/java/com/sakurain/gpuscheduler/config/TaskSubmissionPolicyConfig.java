@@ -22,7 +22,7 @@ public class TaskSubmissionPolicyConfig {
     private int maxActiveTasksPerUser = 3;
 
     /**
-     * Roles allowed to submit high-priority tasks and bypass quota.
+     * Roles allowed to submit high-priority tasks without extra approval.
      */
     private List<String> approverRoles = List.of("ROLE_ADMIN", "ROLE_SUPER_ADMIN");
 }

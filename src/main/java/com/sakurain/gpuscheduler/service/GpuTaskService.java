@@ -39,7 +39,6 @@ public class GpuTaskService {
     private final TaskAgingScheduler agingScheduler;
     private final TaskSubmissionPolicyConfig submissionPolicy;
     private final TaskNotificationService taskNotificationService;
-    private final UserQuotaService userQuotaService;
 
     public GpuTaskService(GpuTaskMapper taskMapper,
                           GpuMapper gpuMapper,
@@ -48,8 +47,7 @@ public class GpuTaskService {
                           TaskPriorityQueue priorityQueue,
                           TaskAgingScheduler agingScheduler,
                           TaskSubmissionPolicyConfig submissionPolicy,
-                          TaskNotificationService taskNotificationService,
-                          UserQuotaService userQuotaService) {
+                          TaskNotificationService taskNotificationService) {
         this.taskMapper = taskMapper;
         this.gpuMapper = gpuMapper;
         this.taskLogMapper = taskLogMapper;
@@ -58,7 +56,6 @@ public class GpuTaskService {
         this.agingScheduler = agingScheduler;
         this.submissionPolicy = submissionPolicy;
         this.taskNotificationService = taskNotificationService;
-        this.userQuotaService = userQuotaService;
     }
 
     @Transactional
@@ -279,14 +276,13 @@ public class GpuTaskService {
 
             if (activeTaskCount != null && activeTaskCount >= submissionPolicy.getMaxActiveTasksPerUser()) {
                 throw new BusinessException(
-                        "TASK_QUOTA_EXCEEDED",
-                        "Active task quota exceeded, please wait for running tasks to finish",
+                        "TASK_ACTIVE_LIMIT_EXCEEDED",
+                        "Active task limit exceeded, please wait for running tasks to finish",
                         429
                 );
             }
         }
 
-        userQuotaService.assertWithinQuota(userId, request, approverRole);
     }
 
     private boolean isApprovalRequired(SubmitTaskRequest request, List<String> roleCodes) {

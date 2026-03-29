@@ -1,7 +1,6 @@
 package com.sakurain.gpuscheduler.controller;
 
 import com.sakurain.gpuscheduler.dto.Result;
-import com.sakurain.gpuscheduler.dto.task.QuotaUsageResponse;
 import com.sakurain.gpuscheduler.dto.task.RejectTaskRequest;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.scheduler.CircuitBreakerService;
@@ -10,7 +9,6 @@ import com.sakurain.gpuscheduler.security.CustomUserDetails;
 import com.sakurain.gpuscheduler.service.GpuTaskService;
 import com.sakurain.gpuscheduler.service.TaskNotificationService;
 import com.sakurain.gpuscheduler.service.TaskRetryDlqService;
-import com.sakurain.gpuscheduler.service.UserQuotaService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -22,16 +20,14 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.Map;
 
 /**
  * 运维控制接口
  */
-@Tag(name = "运维控制", description = "调度器、熔断器、死信队列、配额管理")
+@Tag(name = "运维控制", description = "调度器、熔断器、死信队列")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/ops")
@@ -42,20 +38,17 @@ public class OpsController {
     private final CircuitBreakerService circuitBreakerService;
     private final TaskRetryDlqService retryDlqService;
     private final GpuTaskService gpuTaskService;
-    private final UserQuotaService userQuotaService;
     private final TaskNotificationService taskNotificationService;
 
     public OpsController(TaskDispatcher taskDispatcher,
                          CircuitBreakerService circuitBreakerService,
                          TaskRetryDlqService retryDlqService,
                          GpuTaskService gpuTaskService,
-                         UserQuotaService userQuotaService,
                          TaskNotificationService taskNotificationService) {
         this.taskDispatcher = taskDispatcher;
         this.circuitBreakerService = circuitBreakerService;
         this.retryDlqService = retryDlqService;
         this.gpuTaskService = gpuTaskService;
-        this.userQuotaService = userQuotaService;
         this.taskNotificationService = taskNotificationService;
     }
 
@@ -135,25 +128,6 @@ public class OpsController {
         String reason = request != null ? request.getReason() : "Preempted by operator";
         gpuTaskService.preemptTask(taskId, getCurrentUserId(), reason);
         return Result.success(Map.of("taskId", taskId, "preempted", true));
-    }
-
-    @Operation(summary = "查询用户月度配额使用")
-    @GetMapping("/quota/{userId}")
-    public Result<QuotaUsageResponse> getQuotaUsage(@PathVariable Long userId) {
-        return Result.success(userQuotaService.getMonthlyUsage(userId));
-    }
-
-    @Operation(summary = "查询当前用户月度配额使用")
-    @GetMapping("/quota/current")
-    public Result<QuotaUsageResponse> getCurrentUserQuotaUsage() {
-        return Result.success(userQuotaService.getMonthlyUsage(getCurrentUserId()));
-    }
-
-    @Operation(summary = "查询月度配额使用Top列表")
-    @GetMapping("/quota/top")
-    public Result<List<QuotaUsageResponse>> getTopQuotaUsage(
-            @RequestParam(defaultValue = "10") Integer limit) {
-        return Result.success(userQuotaService.getTopMonthlyUsage(limit));
     }
 
     @Operation(summary = "查询通知重试队列状态")
