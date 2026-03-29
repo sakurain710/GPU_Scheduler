@@ -263,6 +263,29 @@ public class GpuTaskService {
         return getTask(taskId);
     }
 
+    /**
+     * 清空排队中的任务，将其批量置为取消状态。
+     */
+    @Transactional
+    public int drainQueuedTasks(Long operatorId, String reason) {
+        List<GpuTask> queuedTasks = taskMapper.selectList(
+                new LambdaQueryWrapper<GpuTask>()
+                        .eq(GpuTask::getStatus, TaskStatus.QUEUED.getCode()));
+
+        int drained = 0;
+        for (GpuTask queuedTask : queuedTasks) {
+            if (reason != null && !reason.isBlank()) {
+                GpuTask update = new GpuTask();
+                update.setId(queuedTask.getId());
+                update.setErrorMessage(reason);
+                taskMapper.updateById(update);
+            }
+            transition(queuedTask.getId(), TaskStatus.CANCELLED, null, operatorId);
+            drained++;
+        }
+        return drained;
+    }
+
     private void validateSubmissionPolicy(SubmitTaskRequest request, Long userId, List<String> roleCodes) {
         boolean approverRole = hasApprovalRole(roleCodes);
         if (!approverRole) {

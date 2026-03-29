@@ -112,6 +112,14 @@ public class OpsController {
         return Result.success();
     }
 
+    @Operation(summary = "清空排队任务")
+    @PostMapping("/queue/drain")
+    public Result<Map<String, Object>> drainQueue(@RequestBody(required = false) RejectTaskRequest request) {
+        String reason = request != null ? request.getReason() : "Queue drained by operator";
+        int drained = gpuTaskService.drainQueuedTasks(getCurrentUserId(), reason);
+        return Result.success(Map.of("drained", drained, "reason", reason));
+    }
+
     @Operation(summary = "强制任务失败")
     @PostMapping("/tasks/{taskId}/force-fail")
     public Result<Void> forceFailTask(@PathVariable Long taskId,

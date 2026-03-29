@@ -58,7 +58,7 @@ CREATE TABLE `gpu_task` (
   -- ── Execution result ──────────────────────────────────────
   `estimated_seconds`   DECIMAL(12,4)        NULL DEFAULT NULL    COMMENT 'compute_units_gflop / (gpu.computing_power_tflops × 1000). WARNING: always multiply TFLOPS by 1000 first.',
   `actual_seconds`      DECIMAL(12,4)        NULL DEFAULT NULL    COMMENT 'Measured wall-clock time of the simulation thread',
-  `status`              TINYINT UNSIGNED NOT NULL DEFAULT 1       COMMENT '1=Pending 2=Queued 3=Running 4=Completed 5=Failed 6=Cancelled',
+  `status`              TINYINT UNSIGNED NOT NULL DEFAULT 1       COMMENT '1=Pending 2=Queued 3=Running 4=Completed 5=Failed 6=Cancelled 7=PendingApproval 8=Rejected',
   `error_message`       TEXT                 NULL DEFAULT NULL    COMMENT 'Populated on failure',
 
   -- ── Audit ─────────────────────────────────────────────────
@@ -66,7 +66,7 @@ CREATE TABLE `gpu_task` (
   `updated_at`          DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at`          DATETIME             NULL DEFAULT NULL    COMMENT 'Soft delete timestamp',
 
-  CONSTRAINT `chk_task_status`        CHECK (`status`         IN (1, 2, 3, 4, 5, 6)),
+  CONSTRAINT `chk_task_status`        CHECK (`status`         IN (1, 2, 3, 4, 5, 6, 7, 8)),
   CONSTRAINT `chk_task_base_priority` CHECK (`base_priority`  BETWEEN 1 AND 10),
   CONSTRAINT `chk_task_min_memory`    CHECK (`min_memory_gb`       > 0),
   CONSTRAINT `chk_task_compute_units` CHECK (`compute_units_gflop` > 0),
@@ -92,7 +92,7 @@ CREATE TABLE `gpu_task_log` (
   `id`          BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT  COMMENT 'Primary key',
   `task_id`     BIGINT UNSIGNED  NOT NULL                 COMMENT 'FK → gpu_task.id',
   `gpu_id`      BIGINT UNSIGNED      NULL DEFAULT NULL    COMMENT 'GPU involved in this event',
-  `event`       VARCHAR(32)      NOT NULL                 COMMENT 'QUEUED / DISPATCHED / STARTED / COMPLETED / FAILED / CANCELLED',
+  `event`       VARCHAR(32)      NOT NULL                 COMMENT 'QUEUED / DISPATCHED / STARTED / COMPLETED / FAILED / CANCELLED / PENDING_APPROVAL / REJECTED',
   `old_status`  TINYINT UNSIGNED     NULL DEFAULT NULL    COMMENT 'Status before transition',
   `new_status`  TINYINT UNSIGNED     NULL DEFAULT NULL    COMMENT 'Status after transition',
   `age_delta`   DECIMAL(8,4)         NULL DEFAULT NULL    COMMENT 'Deprecated — was age_weight increment (AGED events). Always NULL now that aging is view-computed.',
@@ -100,8 +100,8 @@ CREATE TABLE `gpu_task_log` (
   `operator_id` BIGINT UNSIGNED      NULL DEFAULT NULL    COMMENT 'user.id of admin/system that triggered event',
   `created_at`  DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-  CONSTRAINT `chk_log_old_status` CHECK (`old_status` IS NULL OR `old_status` IN (1, 2, 3, 4, 5, 6)),
-  CONSTRAINT `chk_log_new_status` CHECK (`new_status` IS NULL OR `new_status` IN (1, 2, 3, 4, 5, 6)),
+  CONSTRAINT `chk_log_old_status` CHECK (`old_status` IS NULL OR `old_status` IN (1, 2, 3, 4, 5, 6, 7, 8)),
+  CONSTRAINT `chk_log_new_status` CHECK (`new_status` IS NULL OR `new_status` IN (1, 2, 3, 4, 5, 6, 7, 8)),
 
   PRIMARY KEY (`id`),
   KEY `idx_log_task`    (`task_id`),
