@@ -30,7 +30,5 @@ build/
 
 ### VS Code ###
 .vscode/
-/CLAUDE.md
-/.claude/settings.local.json
-/Functions Llist.md
 /env.env
+/AGENTS.md
