@@ -1,5 +1,7 @@
 package com.sakurain.gpuscheduler.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sakurain.gpuscheduler.config.TaskRetryPolicyConfig;
 import com.sakurain.gpuscheduler.entity.GpuTask;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
@@ -29,17 +31,20 @@ public class TaskRetryDlqService {
     private final TaskRetryPolicyConfig retryPolicy;
     private final GpuTaskMapper taskMapper;
     private final GpuTaskService taskService;
+    private final ObjectMapper objectMapper;
     @Value("${scheduler.scheduled-jobs-enabled:true}")
     private boolean scheduledJobsEnabled;
 
     public TaskRetryDlqService(RedisTemplate<String, String> redisTemplate,
                                TaskRetryPolicyConfig retryPolicy,
                                GpuTaskMapper taskMapper,
-                               GpuTaskService taskService) {
+                               GpuTaskService taskService,
+                               ObjectMapper objectMapper) {
         this.redisTemplate = redisTemplate;
         this.retryPolicy = retryPolicy;
         this.taskMapper = taskMapper;
         this.taskService = taskService;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -131,9 +136,8 @@ public class TaskRetryDlqService {
         if (items == null || items.isEmpty()) {
             return false;
         }
-        String marker = "\"taskId\":" + taskId;
         for (String item : items) {
-            if (item != null && item.contains(marker)) {
+            if (taskId.equals(extractTaskId(item))) {
                 Long removed = redisTemplate.opsForList().remove(DLQ_KEY, 1, item);
                 if (removed != null && removed > 0) {
                     redisTemplate.opsForHash().delete(RETRY_COUNT_KEY, taskId.toString());
@@ -147,6 +151,21 @@ public class TaskRetryDlqService {
             }
         }
         return false;
+    }
+
+    private Long extractTaskId(String payload) {
+        if (payload == null || payload.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(payload);
+            if (!root.has("taskId") || !root.get("taskId").canConvertToLong()) {
+                return null;
+            }
+            return root.get("taskId").longValue();
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     private void pushToDlq(Long taskId, String reason, long attempt) {

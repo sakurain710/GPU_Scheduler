@@ -16,6 +16,7 @@ import com.sakurain.gpuscheduler.mapper.GpuMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskLogMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
 import com.sakurain.gpuscheduler.scheduler.TaskAgingScheduler;
+import com.sakurain.gpuscheduler.scheduler.TaskExecutionSimulator;
 import com.sakurain.gpuscheduler.scheduler.TaskPriorityQueue;
 import com.sakurain.gpuscheduler.scheduler.TaskStateMachine;
 import com.sakurain.gpuscheduler.util.PaginationUtils;
@@ -38,6 +39,7 @@ public class GpuTaskService {
     private final TaskStateMachine stateMachine;
     private final TaskPriorityQueue priorityQueue;
     private final TaskAgingScheduler agingScheduler;
+    private final TaskExecutionSimulator taskExecutionSimulator;
     private final TaskSubmissionPolicyConfig submissionPolicy;
     private final TaskNotificationService taskNotificationService;
 
@@ -47,6 +49,7 @@ public class GpuTaskService {
                           TaskStateMachine stateMachine,
                           TaskPriorityQueue priorityQueue,
                           TaskAgingScheduler agingScheduler,
+                          TaskExecutionSimulator taskExecutionSimulator,
                           TaskSubmissionPolicyConfig submissionPolicy,
                           TaskNotificationService taskNotificationService) {
         this.taskMapper = taskMapper;
@@ -55,6 +58,7 @@ public class GpuTaskService {
         this.stateMachine = stateMachine;
         this.priorityQueue = priorityQueue;
         this.agingScheduler = agingScheduler;
+        this.taskExecutionSimulator = taskExecutionSimulator;
         this.submissionPolicy = submissionPolicy;
         this.taskNotificationService = taskNotificationService;
     }
@@ -104,6 +108,10 @@ public class GpuTaskService {
 
         TaskStatus from = TaskStatus.fromCode(task.getStatus());
         stateMachine.validateTransition(from, target);
+
+        if (from == TaskStatus.RUNNING && target != TaskStatus.RUNNING) {
+            taskExecutionSimulator.cancelTask(taskId);
+        }
 
         task.setStatus(target.getCode());
         if (target == TaskStatus.QUEUED) {
@@ -349,7 +357,7 @@ public class GpuTaskService {
 
     private void validateTaskOwnerOrApprover(GpuTask task, Long requesterId, List<String> roleCodes) {
         boolean hasApprovalRole = hasApprovalRole(roleCodes);
-        if (!hasApprovalRole && !task.getUserId().equals(requesterId)) {
+        if (!hasApprovalRole && (task.getUserId() == null || !task.getUserId().equals(requesterId))) {
             throw new BusinessException("TASK_FORBIDDEN", "No permission to access this task", 403);
         }
     }

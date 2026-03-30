@@ -12,6 +12,7 @@ import com.sakurain.gpuscheduler.mapper.GpuMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskLogMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
 import com.sakurain.gpuscheduler.scheduler.TaskAgingScheduler;
+import com.sakurain.gpuscheduler.scheduler.TaskExecutionSimulator;
 import com.sakurain.gpuscheduler.scheduler.TaskPriorityQueue;
 import com.sakurain.gpuscheduler.scheduler.TaskStateMachine;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,6 +50,8 @@ class GpuTaskServiceTest {
     private TaskAgingScheduler agingScheduler;
     @Mock
     private TaskNotificationService taskNotificationService;
+    @Mock
+    private TaskExecutionSimulator taskExecutionSimulator;
 
     private GpuTaskService gpuTaskService;
 
@@ -65,6 +68,7 @@ class GpuTaskServiceTest {
                 stateMachine,
                 priorityQueue,
                 agingScheduler,
+                taskExecutionSimulator,
                 submissionPolicy,
                 taskNotificationService
         );
@@ -130,6 +134,7 @@ class GpuTaskServiceTest {
 
         verify(priorityQueue).remove(2L);
         verify(taskNotificationService).notifyTaskStatus(2L, 1L, TaskStatus.QUEUED, TaskStatus.CANCELLED, null);
+        verify(taskExecutionSimulator, never()).cancelTask(anyLong());
     }
 
     @Test
@@ -169,6 +174,35 @@ class GpuTaskServiceTest {
         ArgumentCaptor<GpuTask> captor = ArgumentCaptor.forClass(GpuTask.class);
         verify(taskMapper, times(2)).updateById(captor.capture());
         assertTrue(captor.getAllValues().stream().allMatch(v -> "operator drain".equals(v.getErrorMessage())));
+    }
+
+    @Test
+    void transition_runningToQueued_cancelsSimulatorTask() {
+        GpuTask running = GpuTask.builder()
+                .id(88L).userId(7L).status(TaskStatus.RUNNING.getCode()).basePriority(4)
+                .build();
+        when(taskMapper.selectById(88L)).thenReturn(running);
+        when(taskMapper.updateById(any(GpuTask.class))).thenReturn(1);
+        when(taskExecutionSimulator.cancelTask(88L)).thenReturn(true);
+
+        gpuTaskService.transition(88L, TaskStatus.QUEUED, null, 9L);
+
+        verify(taskExecutionSimulator).cancelTask(88L);
+        verify(priorityQueue).enqueue(eq(88L), anyDouble());
+    }
+
+    @Test
+    void getTask_withNullTaskOwner_withoutApproverRole_forbidden() {
+        GpuTask task = GpuTask.builder()
+                .id(66L).userId(null).status(TaskStatus.QUEUED.getCode())
+                .build();
+        when(taskMapper.selectById(66L)).thenReturn(task);
+
+        assertThrows(com.sakurain.gpuscheduler.exception.BusinessException.class,
+                () -> gpuTaskService.getTask(66L, 1L, List.of()));
+
+        verify(taskNotificationService, never()).notifyTaskStatus(anyLong(), any(), any(), any(), any());
+        verify(taskExecutionSimulator, never()).cancelTask(anyLong());
     }
 
     @Test
