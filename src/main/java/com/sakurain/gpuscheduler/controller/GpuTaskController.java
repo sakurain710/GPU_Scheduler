@@ -35,7 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "GPU任务管理", description = "提交、查询和取消GPU任务")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
-@RequestMapping({"/api/task", "/api/v1/task"})
+@RequestMapping("/api/task")
 @Validated
 public class GpuTaskController {
 

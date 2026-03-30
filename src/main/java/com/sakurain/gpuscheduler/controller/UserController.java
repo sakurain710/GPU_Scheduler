@@ -37,7 +37,7 @@ import java.util.List;
 @Tag(name = "用户管理", description = "用户CRUD和角色分配")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
-@RequestMapping({"/api/users", "/api/v1/users"})
+@RequestMapping("/api/users")
 @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')")
 @Validated
 public class UserController {

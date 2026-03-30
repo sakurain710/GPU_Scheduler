@@ -39,7 +39,7 @@ import java.util.Map;
 @Tag(name = "GPU资源管理", description = "GPU注册、查询、状态更新和指标")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
-@RequestMapping({"/api/gpu", "/api/v1/gpu"})
+@RequestMapping("/api/gpu")
 @Validated
 public class GpuController {
 
