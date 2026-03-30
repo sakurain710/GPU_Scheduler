@@ -64,6 +64,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 }
 
                 Long userId = jwtUtil.getUserIdFromToken(jwt);
+                java.util.Date issuedAt = jwtUtil.getIssuedAtFromToken(jwt);
+                if (issuedAt != null && tokenBlacklistService.isAccessTokenRevokedByRefresh(userId, issuedAt)) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
                 UserDetails userDetails = userDetailsService.loadUserById(userId);
 
                 if (userDetails.isEnabled()) {

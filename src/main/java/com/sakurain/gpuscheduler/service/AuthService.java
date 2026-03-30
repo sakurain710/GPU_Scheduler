@@ -131,9 +131,11 @@ public class AuthService {
 
             String newAccessToken = jwtUtil.generateAccessToken(userId, username, roleCodes);
             String newRefreshToken = jwtUtil.generateRefreshToken(userId, username);
+            java.util.Date refreshTokenExpiration = jwtUtil.getExpirationDateFromToken(refreshToken);
 
             // 刷新令牌轮换：旧refresh令牌立刻拉黑
-            tokenBlacklistService.blacklistToken(refreshToken, jwtUtil.getExpirationDateFromToken(refreshToken));
+            tokenBlacklistService.blacklistToken(refreshToken, refreshTokenExpiration);
+            tokenBlacklistService.revokeAccessTokensIssuedBefore(userId, new java.util.Date(), refreshTokenExpiration);
 
             log.info("令牌刷新成功: userId={}, username={}", userId, username);
 

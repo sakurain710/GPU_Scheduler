@@ -3,6 +3,8 @@ package com.sakurain.gpuscheduler.controller;
 import com.sakurain.gpuscheduler.dto.Result;
 import com.sakurain.gpuscheduler.dto.task.RejectTaskRequest;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
+import com.sakurain.gpuscheduler.exception.BusinessException;
+import com.sakurain.gpuscheduler.exception.ResourceNotFoundException;
 import com.sakurain.gpuscheduler.scheduler.CircuitBreakerService;
 import com.sakurain.gpuscheduler.scheduler.TaskDispatcher;
 import com.sakurain.gpuscheduler.security.CustomUserDetails;
@@ -101,7 +103,13 @@ public class OpsController {
     @Operation(summary = "重处理死信任务")
     @PostMapping("/dlq/{taskId}/reprocess")
     public Result<Map<String, Object>> reprocessDlqTask(@PathVariable Long taskId) {
+        if (taskId == null || taskId <= 0) {
+            throw new BusinessException("INVALID_TASK_ID", "taskId must be a positive number", 400);
+        }
         boolean ok = retryDlqService.reprocessDlqTask(taskId);
+        if (!ok) {
+            throw new ResourceNotFoundException("DLQ task not found: " + taskId);
+        }
         return Result.success(Map.of("taskId", taskId, "reprocessed", ok));
     }
 

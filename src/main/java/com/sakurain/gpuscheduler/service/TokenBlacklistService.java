@@ -14,15 +14,15 @@ import java.util.HexFormat;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Token 黑名单服务
- * 使用 Redis 存储已吊销的令牌（通过 SHA-256 哈希标识，避免存储原始令牌）
- * Redis 不可用时采用 fail-open 策略（记录警告日志，放行请求）
+ * Token blacklist service backed by Redis.
+ * Uses fail-open behavior when Redis is unavailable.
  */
 @Slf4j
 @Service
 public class TokenBlacklistService {
 
     private static final String KEY_PREFIX = "gpu-scheduler:blacklist:";
+    private static final String ACCESS_REVOKE_CUTOFF_PREFIX = "gpu-scheduler:access-revoke-cutoff:user:";
     private static final String BLACKLISTED_VALUE = "1";
 
     private final RedisTemplate<String, String> redisTemplate;
@@ -33,45 +33,73 @@ public class TokenBlacklistService {
     }
 
     /**
-     * 将令牌加入黑名单，TTL 为令牌剩余有效时间
-     *
-     * @param token      JWT 令牌原文
-     * @param expiration 令牌过期时间
+     * Add a token to blacklist with TTL based on its remaining lifetime.
      */
     public void blacklistToken(String token, Date expiration) {
         try {
             long ttlSeconds = (expiration.getTime() - System.currentTimeMillis()) / 1000;
             if (ttlSeconds <= 0) {
-                // 令牌已过期，无需加入黑名单
                 return;
             }
             String key = KEY_PREFIX + hashToken(token);
             redisTemplate.opsForValue().set(key, BLACKLISTED_VALUE, ttlSeconds, TimeUnit.SECONDS);
-            log.debug("令牌已加入黑名单，TTL={}s", ttlSeconds);
+            log.debug("token blacklisted, ttl={}s", ttlSeconds);
         } catch (RedisConnectionFailureException e) {
-            log.warn("Redis 不可用，无法将令牌加入黑名单（fail-open）: {}", e.getMessage());
+            log.warn("Redis unavailable, cannot blacklist token (fail-open): {}", e.getMessage());
         }
     }
 
     /**
-     * 检查令牌是否在黑名单中
-     * Redis 不可用时返回 false（fail-open）
-     *
-     * @param token JWT 令牌原文
-     * @return true 表示已被吊销
+     * Check whether token is blacklisted.
      */
     public boolean isBlacklisted(String token) {
         try {
             String key = KEY_PREFIX + hashToken(token);
             return Boolean.TRUE.equals(redisTemplate.hasKey(key));
         } catch (RedisConnectionFailureException e) {
-            log.warn("Redis 不可用，跳过黑名单检查（fail-open）: {}", e.getMessage());
+            log.warn("Redis unavailable, skip blacklist check (fail-open): {}", e.getMessage());
             return false;
         }
     }
 
     /**
-     * 计算令牌的 SHA-256 哈希值（十六进制字符串）
+     * Revoke all access tokens issued before cutoff time for one user.
+     */
+    public void revokeAccessTokensIssuedBefore(Long userId, Date cutoff, Date expiration) {
+        try {
+            long ttlSeconds = (expiration.getTime() - System.currentTimeMillis()) / 1000;
+            if (ttlSeconds <= 0) {
+                return;
+            }
+            String key = ACCESS_REVOKE_CUTOFF_PREFIX + userId;
+            redisTemplate.opsForValue().set(key, String.valueOf(cutoff.getTime()), ttlSeconds, TimeUnit.SECONDS);
+        } catch (RedisConnectionFailureException e) {
+            log.warn("Redis unavailable, cannot write access revoke cutoff (fail-open): {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Check whether an access token was issued before user's revoke cutoff.
+     */
+    public boolean isAccessTokenRevokedByRefresh(Long userId, Date issuedAt) {
+        try {
+            String key = ACCESS_REVOKE_CUTOFF_PREFIX + userId;
+            String cutoffRaw = redisTemplate.opsForValue().get(key);
+            if (cutoffRaw == null) {
+                return false;
+            }
+            long cutoffMs = Long.parseLong(cutoffRaw);
+            return issuedAt.getTime() < cutoffMs;
+        } catch (RedisConnectionFailureException e) {
+            log.warn("Redis unavailable, skip access revoke cutoff check (fail-open): {}", e.getMessage());
+            return false;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    /**
+     * SHA-256 hash for token key derivation.
      */
     private String hashToken(String token) {
         try {
@@ -79,8 +107,7 @@ public class TokenBlacklistService {
             byte[] hash = digest.digest(token.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hash);
         } catch (NoSuchAlgorithmException e) {
-            // SHA-256 是 Java 标准算法，不会发生此异常
-            throw new IllegalStateException("SHA-256 算法不可用", e);
+            throw new IllegalStateException("SHA-256 not available", e);
         }
     }
 }

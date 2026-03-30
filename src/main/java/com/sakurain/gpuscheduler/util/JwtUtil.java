@@ -221,6 +221,11 @@ public class JwtUtil {
         return claims.getExpiration();
     }
 
+    public Date getIssuedAtFromToken(String token) {
+        Claims claims = parseToken(token);
+        return claims.getIssuedAt();
+    }
+
     /**
      * 从 token 中获取令牌类型：access 或 refresh
      */
