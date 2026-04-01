@@ -15,13 +15,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-/**
- * Spring Security 配置类
- * 配置认证、授权、密码编码器、JWT 过滤器等
- * 过滤器执行顺序：IdempotencyFilter → RateLimitFilter → JwtAuthenticationFilter → ...
- * 注意：不需要手动配置 AuthenticationProvider，Spring Security 会自动检测
- * UserDetailsService 和 PasswordEncoder bean，并自动创建 DaoAuthenticationProvider
- */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
@@ -43,43 +36,29 @@ public class SecurityConfig {
         this.idempotencyFilter = idempotencyFilter;
     }
 
-    /**
-     * 配置密码编码器
-     * 使用 BCrypt 加密算法
-     * Spring Security 会自动检测此 bean 并用于认证
-     */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
-    /**
-     * 配置认证管理器
-     */
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
         return config.getAuthenticationManager();
     }
 
-    /**
-     * 配置安全过滤器链
-     */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                // 禁用 CSRF（因为使用 JWT，不需要 CSRF 保护）
                 .csrf(AbstractHttpConfigurer::disable)
-                // 配置异常处理
                 .exceptionHandling(exception -> exception.authenticationEntryPoint(jwtAuthenticationEntryPoint))
-                // 配置会话管理（无状态）
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                // 配置授权规则
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/api/auth/**",           // 认证相关接口（登录、刷新、登出）
-                                "/api/public/**",         // 公开接口
-                                "/error",                 // 错误页面
-                                "/actuator/health",       // 健康检查
+                                "/api/auth/login",
+                                "/api/auth/refresh",
+                                "/api/public/**",
+                                "/error",
+                                "/actuator/health",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/ws/**",
@@ -88,8 +67,6 @@ public class SecurityConfig {
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
-
-                // 添加过滤器（执行顺序：Idempotency → RateLimit → JWT）
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(rateLimitFilter, JwtAuthenticationFilter.class)
                 .addFilterBefore(idempotencyFilter, RateLimitFilter.class);
