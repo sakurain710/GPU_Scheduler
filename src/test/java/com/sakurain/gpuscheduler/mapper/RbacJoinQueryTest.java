@@ -63,7 +63,7 @@ class RbacJoinQueryTest {
         roleMapper.insert(adminRole);
 
         viewerRole = Role.builder()
-                .code("ROLE_VIEWER_" + s).name("只读").roleType(2).sortOrder(2).status(1).build();
+                .code("ROLE_TASK_REVIEWER_" + s).name("任务审核员").roleType(2).sortOrder(2).status(1).build();
         roleMapper.insert(viewerRole);
 
         // admin: view + edit; viewer: view only
