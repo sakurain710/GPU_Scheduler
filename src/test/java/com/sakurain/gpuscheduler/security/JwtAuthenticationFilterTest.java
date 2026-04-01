@@ -66,4 +66,24 @@ class JwtAuthenticationFilterTest {
         verify(filterChain).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
+
+    @Test
+    void refreshTokenUsedOnProtectedApi_shouldReturn401WithTokenTypeError() throws Exception {
+        String token = "refresh-token";
+
+        when(jwtConfig.getHeaderName()).thenReturn("Authorization");
+        when(jwtUtil.extractTokenFromHeader("Bearer " + token)).thenReturn(token);
+        when(jwtUtil.validateToken(token)).thenReturn(true);
+        when(jwtUtil.isAccessToken(token)).thenReturn(false);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/auth/me");
+        request.addHeader("Authorization", "Bearer " + token);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        jwtAuthenticationFilter.doFilter(request, response, filterChain);
+
+        verify(filterChain, never()).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        assertThat(response.getStatus()).isEqualTo(401);
+        assertThat(response.getContentAsString()).contains("\"message\":\"令牌类型错误\"");
+    }
 }

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -23,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.inOrder;
 
 @ExtendWith(MockitoExtension.class)
 class AuthServiceTest {
@@ -73,6 +75,33 @@ class AuthServiceTest {
         assertEquals("new-refresh", response.getRefreshToken());
         verify(tokenBlacklistService).blacklistToken(oldRefreshToken, expiration);
         verify(tokenBlacklistService).revokeAccessTokensIssuedBefore(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.any(Date.class), org.mockito.ArgumentMatchers.eq(expiration));
+    }
+
+    @Test
+    void refreshToken_shouldRevokeBeforeIssuingNewAccessToken() {
+        String oldRefreshToken = "old.refresh.token";
+        Date expiration = new Date(System.currentTimeMillis() + 60_000);
+
+        when(jwtUtil.validateToken(oldRefreshToken)).thenReturn(true);
+        when(jwtUtil.isRefreshToken(oldRefreshToken)).thenReturn(true);
+        when(tokenBlacklistService.isBlacklisted(oldRefreshToken)).thenReturn(false);
+        when(jwtUtil.getUserIdFromToken(oldRefreshToken)).thenReturn(1L);
+        when(jwtUtil.getUsernameFromToken(oldRefreshToken)).thenReturn("alice");
+        when(userMapper.selectById(1L)).thenReturn(User.builder().id(1L).status(1).build());
+        when(roleMapper.selectByUserId(1L)).thenReturn(List.of(Role.builder().code("ROLE_USER").build()));
+        when(jwtUtil.getExpirationDateFromToken(oldRefreshToken)).thenReturn(expiration);
+        when(jwtUtil.generateAccessToken(1L, "alice", List.of("ROLE_USER"))).thenReturn("new-access");
+        when(jwtUtil.generateRefreshToken(1L, "alice")).thenReturn("new-refresh");
+
+        authService.refreshToken(oldRefreshToken);
+
+        InOrder inOrder = inOrder(tokenBlacklistService, jwtUtil);
+        inOrder.verify(tokenBlacklistService).revokeAccessTokensIssuedBefore(
+                org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.any(Date.class),
+                org.mockito.ArgumentMatchers.eq(expiration)
+        );
+        inOrder.verify(jwtUtil).generateAccessToken(1L, "alice", List.of("ROLE_USER"));
     }
 
     @Test

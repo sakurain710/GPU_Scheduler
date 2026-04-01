@@ -1,6 +1,8 @@
 package com.sakurain.gpuscheduler.security;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sakurain.gpuscheduler.config.JwtConfig;
+import com.sakurain.gpuscheduler.dto.Result;
 import com.sakurain.gpuscheduler.service.TokenBlacklistService;
 import com.sakurain.gpuscheduler.util.JwtUtil;
 import jakarta.servlet.FilterChain;
@@ -53,7 +55,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             if (StringUtils.hasText(jwt) && jwtUtil.validateToken(jwt)) {
                 // 只允许 access token 进入鉴权流程
                 if (!jwtUtil.isAccessToken(jwt)) {
-                    filterChain.doFilter(request, response);
+                    writeUnauthorized(response, "令牌类型错误");
                     return;
                 }
 
@@ -94,5 +96,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private String getJwtFromRequest(HttpServletRequest request) {
         String bearerToken = request.getHeader(jwtConfig.getHeaderName());
         return jwtUtil.extractTokenFromHeader(bearerToken);
+    }
+
+    private void writeUnauthorized(HttpServletResponse response, String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write(new ObjectMapper().writeValueAsString(Result.error(401, message)));
     }
 }

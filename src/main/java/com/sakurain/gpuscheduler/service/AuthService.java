@@ -116,12 +116,13 @@ public class AuthService {
             List<Role> roles = roleMapper.selectByUserId(userId);
             List<String> roleCodes = roles.stream().map(Role::getCode).collect(Collectors.toList());
 
+            Date refreshTokenExpiration = jwtUtil.getExpirationDateFromToken(refreshToken);
+            Date revokeCutoff = new Date();
+            tokenBlacklistService.blacklistToken(refreshToken, refreshTokenExpiration);
+            tokenBlacklistService.revokeAccessTokensIssuedBefore(userId, revokeCutoff, refreshTokenExpiration);
+
             String newAccessToken = jwtUtil.generateAccessToken(userId, username, roleCodes);
             String newRefreshToken = jwtUtil.generateRefreshToken(userId, username);
-            Date refreshTokenExpiration = jwtUtil.getExpirationDateFromToken(refreshToken);
-
-            tokenBlacklistService.blacklistToken(refreshToken, refreshTokenExpiration);
-            tokenBlacklistService.revokeAccessTokensIssuedBefore(userId, new Date(), refreshTokenExpiration);
 
             log.info("令牌刷新成功: userId={}, username={}", userId, username);
 
