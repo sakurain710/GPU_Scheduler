@@ -62,9 +62,8 @@ src/main/resources
 └─ mapper/*.xml
 
 docs/mysql
-├─ rbac/rbac_test_db.sql      # RBAC 基础表结构
-├─ rbac/rbac_seed_data.sql    # RBAC 种子数据
-└─ gpu/gpu_task.sql           # GPU/任务相关表结构
+├─ gpu_scheduler_db/gpu_scheduler_db.sql      # 数据库 基础表结构
+└─ gpu_scheduler_db/seed_data.sql             # 初始化种子数据
 ```
 
 ## 5. 快速开始
@@ -80,9 +79,8 @@ docs/mysql
 
 按顺序执行：
 
-1. `docs/mysql/rbac/rbac_test_db.sql`
-2. `docs/mysql/gpu/gpu_task.sql`
-3. `docs/mysql/rbac/rbac_seed_data.sql`
+1. `docs/mysql/gpu_scheduler_db/gpu_scheduler_db.sql`
+2. `docs/mysql/gpu_scheduler_db/seed_data.sql`
 
 ### 5.3 配置环境变量
 
@@ -103,7 +101,7 @@ docs/mysql
 示例（PowerShell）：
 
 ```powershell
-$env:DB_URL='jdbc:mysql://127.0.0.1:3306/rbac_test_db?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai'
+$env:DB_URL='jdbc:mysql://127.0.0.1:3306/gpu_scheduler_db?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai'
 $env:DB_USERNAME='root'
 $env:DB_PASSWORD='your_password'
 $env:REDIS_HOST='127.0.0.1'
