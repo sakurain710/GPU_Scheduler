@@ -33,7 +33,7 @@ import java.util.Map;
 @SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/ops")
-@PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')")
+@PreAuthorize("hasAnyAuthority('ROLE_ADMIN')")
 public class OpsController {
 
     private final TaskDispatcher taskDispatcher;

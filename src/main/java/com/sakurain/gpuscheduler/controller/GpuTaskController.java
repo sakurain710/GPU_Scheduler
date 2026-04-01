@@ -102,7 +102,7 @@ public class GpuTaskController {
 
     @Operation(summary = "待审批任务列表")
     @GetMapping("/approval/pending")
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_SUPER_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_TASK_REVIEWER')")
     public Result<IPage<TaskResponse>> listPendingApprovals(
             @RequestParam(defaultValue = "1") @Min(1) Integer page,
             @RequestParam(defaultValue = "10") @Min(1) @Max(200) Integer size,
@@ -113,7 +113,7 @@ public class GpuTaskController {
 
     @Operation(summary = "审批通过任务")
     @PostMapping("/{taskId}/approve")
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_SUPER_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_TASK_REVIEWER')")
     public Result<TaskResponse> approveTask(@PathVariable Long taskId) {
         CustomUserDetails currentUser = getCurrentUserDetails();
         TaskResponse response = gpuTaskService.approveTask(taskId, currentUser.getUserId());
@@ -122,7 +122,7 @@ public class GpuTaskController {
 
     @Operation(summary = "审批拒绝任务")
     @PostMapping("/{taskId}/reject")
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_SUPER_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_TASK_REVIEWER')")
     public Result<TaskResponse> rejectTask(@PathVariable Long taskId,
                                            @RequestBody(required = false) RejectTaskRequest request) {
         CustomUserDetails currentUser = getCurrentUserDetails();

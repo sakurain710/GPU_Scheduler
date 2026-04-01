@@ -140,7 +140,7 @@ public class GpuController {
      */
     @Operation(summary = "上报GPU worker心跳", description = "仅管理员")
     @PostMapping("/{gpuId}/heartbeat")
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_SUPER_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN')")
     public Result<Map<String, Object>> heartbeat(@PathVariable Long gpuId) {
         workerHeartbeatService.beat(gpuId);
         return Result.success(Map.of(
