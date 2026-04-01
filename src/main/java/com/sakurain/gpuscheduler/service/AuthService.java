@@ -22,12 +22,10 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- * 认证服务
- */
 @Slf4j
 @Service
 public class AuthService {
@@ -51,18 +49,11 @@ public class AuthService {
         this.tokenBlacklistService = tokenBlacklistService;
     }
 
-    /**
-     * 用户登录
-     */
     public LoginResponse login(LoginRequest request) {
         log.info("用户尝试登录: username={}", request.getUsername());
-
         try {
             Authentication authentication = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(
-                            request.getUsername(),
-                            request.getPassword()
-                    )
+                    new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
             );
 
             CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
@@ -93,19 +84,15 @@ public class AuthService {
         }
     }
 
-    /**
-     * 刷新令牌（含 refresh token 轮换）
-     */
     public LoginResponse refreshToken(String refreshToken) {
         log.info("尝试刷新令牌");
-
         try {
             if (!jwtUtil.validateToken(refreshToken)) {
                 log.warn("令牌刷新失败 - 无效的刷新令牌");
                 throw new InvalidTokenException("无效的刷新令牌");
             }
             if (!jwtUtil.isRefreshToken(refreshToken)) {
-                log.warn("令牌刷新失败 - 令牌类型不是refresh");
+                log.warn("令牌刷新失败 - 令牌类型不是 refresh");
                 throw new InvalidTokenException("令牌类型错误");
             }
             if (tokenBlacklistService.isBlacklisted(refreshToken)) {
@@ -131,11 +118,10 @@ public class AuthService {
 
             String newAccessToken = jwtUtil.generateAccessToken(userId, username, roleCodes);
             String newRefreshToken = jwtUtil.generateRefreshToken(userId, username);
-            java.util.Date refreshTokenExpiration = jwtUtil.getExpirationDateFromToken(refreshToken);
+            Date refreshTokenExpiration = jwtUtil.getExpirationDateFromToken(refreshToken);
 
-            // 刷新令牌轮换：旧refresh令牌立刻拉黑
             tokenBlacklistService.blacklistToken(refreshToken, refreshTokenExpiration);
-            tokenBlacklistService.revokeAccessTokensIssuedBefore(userId, new java.util.Date(), refreshTokenExpiration);
+            tokenBlacklistService.revokeAccessTokensIssuedBefore(userId, new Date(), refreshTokenExpiration);
 
             log.info("令牌刷新成功: userId={}, username={}", userId, username);
 
@@ -156,40 +142,60 @@ public class AuthService {
         }
     }
 
-    /**
-     * 用户登出
-     */
     public void logout(String accessToken, String refreshToken) {
+        if (!StringUtils.hasText(accessToken) && !StringUtils.hasText(refreshToken)) {
+            throw new InvalidTokenException("缺少登出令牌");
+        }
+
         if (StringUtils.hasText(accessToken) && jwtUtil.validateToken(accessToken)) {
+            if (tokenBlacklistService.isBlacklisted(accessToken)) {
+                throw new InvalidTokenException("令牌已失效或已登出");
+            }
+
             Long userId = jwtUtil.getUserIdFromToken(accessToken);
-            log.info("用户登出: userId={}", userId);
-            tokenBlacklistService.blacklistToken(accessToken, jwtUtil.getExpirationDateFromToken(accessToken));
+            Date expiration = jwtUtil.getExpirationDateFromToken(accessToken);
+            tokenBlacklistService.blacklistToken(accessToken, expiration);
+
+            if (jwtUtil.isRefreshToken(accessToken)) {
+                tokenBlacklistService.revokeAccessTokensIssuedBefore(userId, new Date(), expiration);
+            } else if (!jwtUtil.isAccessToken(accessToken)) {
+                throw new InvalidTokenException("令牌类型错误");
+            }
         }
 
         if (StringUtils.hasText(refreshToken) && jwtUtil.validateToken(refreshToken)) {
-            tokenBlacklistService.blacklistToken(refreshToken, jwtUtil.getExpirationDateFromToken(refreshToken));
+            if (!jwtUtil.isRefreshToken(refreshToken)) {
+                throw new InvalidTokenException("刷新令牌类型错误");
+            }
+            if (tokenBlacklistService.isBlacklisted(refreshToken)) {
+                throw new InvalidTokenException("令牌已失效或已登出");
+            }
+
+            Long userId = jwtUtil.getUserIdFromToken(refreshToken);
+            Date refreshExpiration = jwtUtil.getExpirationDateFromToken(refreshToken);
+            tokenBlacklistService.blacklistToken(refreshToken, refreshExpiration);
+            tokenBlacklistService.revokeAccessTokensIssuedBefore(userId, new Date(), refreshExpiration);
         }
 
         SecurityContextHolder.clearContext();
         log.info("用户登出成功，令牌已加入黑名单");
     }
 
-    /**
-     * 获取当前登录用户信息
-     */
     public UserResponse getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !authentication.isAuthenticated()) {
-            log.warn("获取当前用户失败 - 用户未登录");
             throw new InvalidTokenException("用户未登录");
         }
 
-        CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
-        Long userId = userDetails.getUserId();
+        Object principal = authentication.getPrincipal();
+        if (!(principal instanceof CustomUserDetails userDetails)) {
+            log.warn("鉴权主体类型非法: principalType={}", principal == null ? "null" : principal.getClass().getName());
+            throw new InvalidTokenException("令牌无效或已失效");
+        }
 
+        Long userId = userDetails.getUserId();
         User user = userMapper.selectById(userId);
         if (user == null) {
-            log.error("获取当前用户失败 - 用户不存在: userId={}", userId);
             throw new ResourceNotFoundException("用户不存在");
         }
 

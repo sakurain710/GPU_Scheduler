@@ -3,6 +3,7 @@ package com.sakurain.gpuscheduler.service;
 import com.sakurain.gpuscheduler.dto.auth.LoginResponse;
 import com.sakurain.gpuscheduler.entity.Role;
 import com.sakurain.gpuscheduler.entity.User;
+import com.sakurain.gpuscheduler.exception.InvalidTokenException;
 import com.sakurain.gpuscheduler.mapper.RoleMapper;
 import com.sakurain.gpuscheduler.mapper.UserMapper;
 import com.sakurain.gpuscheduler.util.JwtUtil;
@@ -12,11 +13,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.Date;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -69,5 +73,46 @@ class AuthServiceTest {
         assertEquals("new-refresh", response.getRefreshToken());
         verify(tokenBlacklistService).blacklistToken(oldRefreshToken, expiration);
         verify(tokenBlacklistService).revokeAccessTokensIssuedBefore(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.any(Date.class), org.mockito.ArgumentMatchers.eq(expiration));
+    }
+
+    @Test
+    void logout_shouldRejectAlreadyBlacklistedToken() {
+        String blacklistedAccess = "access.token";
+        when(jwtUtil.validateToken(blacklistedAccess)).thenReturn(true);
+        when(tokenBlacklistService.isBlacklisted(blacklistedAccess)).thenReturn(true);
+
+        assertThrows(InvalidTokenException.class, () -> authService.logout(blacklistedAccess, null));
+    }
+
+    @Test
+    void logout_withRefreshTokenInAuthHeader_shouldRevokeExistingAccessTokens() {
+        String refreshToken = "refresh.token";
+        Date expiration = new Date(System.currentTimeMillis() + 60_000);
+
+        when(jwtUtil.validateToken(refreshToken)).thenReturn(true);
+        when(tokenBlacklistService.isBlacklisted(refreshToken)).thenReturn(false);
+        when(jwtUtil.getUserIdFromToken(refreshToken)).thenReturn(7L);
+        when(jwtUtil.getExpirationDateFromToken(refreshToken)).thenReturn(expiration);
+        when(jwtUtil.isRefreshToken(refreshToken)).thenReturn(true);
+
+        authService.logout(refreshToken, null);
+
+        verify(tokenBlacklistService).blacklistToken(refreshToken, expiration);
+        verify(tokenBlacklistService).revokeAccessTokensIssuedBefore(
+                org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.any(Date.class),
+                org.mockito.ArgumentMatchers.eq(expiration)
+        );
+    }
+
+    @Test
+    void getCurrentUser_whenPrincipalIsString_shouldThrowInvalidTokenException() {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("anonymousUser", null, List.of())
+        );
+
+        assertThrows(InvalidTokenException.class, () -> authService.getCurrentUser());
+
+        SecurityContextHolder.clearContext();
     }
 }
