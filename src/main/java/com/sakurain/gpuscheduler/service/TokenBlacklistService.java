@@ -72,7 +72,9 @@ public class TokenBlacklistService {
                 return;
             }
             String key = ACCESS_REVOKE_CUTOFF_PREFIX + userId;
-            redisTemplate.opsForValue().set(key, String.valueOf(cutoff.getTime()), ttlSeconds, TimeUnit.SECONDS);
+            // Store cutoff in epoch-second to align with JWT iat precision.
+            long cutoffEpochSecond = cutoff.getTime() / 1000;
+            redisTemplate.opsForValue().set(key, String.valueOf(cutoffEpochSecond), ttlSeconds, TimeUnit.SECONDS);
         } catch (RedisConnectionFailureException e) {
             log.warn("Redis unavailable, cannot write access revoke cutoff (fail-open): {}", e.getMessage());
         }
@@ -88,8 +90,11 @@ public class TokenBlacklistService {
             if (cutoffRaw == null) {
                 return false;
             }
-            long cutoffMs = Long.parseLong(cutoffRaw);
-            return issuedAt.getTime() < cutoffMs;
+            long cutoffStored = Long.parseLong(cutoffRaw);
+            // Backward compatible: old values may be stored in epoch-millisecond.
+            long cutoffEpochSecond = cutoffStored > 9_999_999_999L ? cutoffStored / 1000 : cutoffStored;
+            long issuedAtEpochSecond = issuedAt.getTime() / 1000;
+            return issuedAtEpochSecond < cutoffEpochSecond;
         } catch (RedisConnectionFailureException e) {
             log.warn("Redis unavailable, skip access revoke cutoff check (fail-open): {}", e.getMessage());
             return false;
