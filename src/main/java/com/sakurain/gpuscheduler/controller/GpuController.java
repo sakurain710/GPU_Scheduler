@@ -39,7 +39,7 @@ import java.util.Map;
 @Tag(name = "GPU资源管理", description = "GPU注册、查询、状态更新和指标")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
-@RequestMapping("/api/gpu")
+@RequestMapping({"/api/gpu", "/api/gpus"})
 @Validated
 public class GpuController {
 
@@ -84,7 +84,7 @@ public class GpuController {
      */
     @Operation(summary = "注册GPU", description = "仅管理员")
     @PostMapping
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','gpu:write')")
     public Result<GpuResponse> registerGpu(@Valid @RequestBody RegisterGpuRequest request) {
         Long operatorId = getCurrentUserId();
         GpuResponse response = gpuService.registerGpu(request, operatorId);
@@ -96,7 +96,7 @@ public class GpuController {
      */
     @Operation(summary = "更新GPU状态", description = "仅管理员")
     @PutMapping("/{gpuId}/status")
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','gpu:write')")
     public Result<GpuResponse> updateStatus(
             @PathVariable Long gpuId,
             @Valid @RequestBody UpdateGpuStatusRequest request) {
@@ -109,7 +109,7 @@ public class GpuController {
      */
     @Operation(summary = "删除GPU", description = "仅管理员")
     @DeleteMapping("/{gpuId}")
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','gpu:write')")
     public Result<Void> deleteGpu(@PathVariable Long gpuId) {
         gpuService.deleteGpu(gpuId);
         return Result.success();
@@ -120,7 +120,7 @@ public class GpuController {
      */
     @Operation(summary = "GPU健康摘要", description = "仅管理员")
     @GetMapping("/health")
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','gpu:read')")
     public Result<Map<String, Long>> healthCheck() {
         return Result.success(gpuService.healthCheck());
     }
@@ -130,7 +130,7 @@ public class GpuController {
      */
     @Operation(summary = "GPU利用率指标", description = "仅管理员")
     @GetMapping("/metrics")
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','gpu:read')")
     public Result<Map<String, Object>> utilizationMetrics() {
         return Result.success(gpuService.utilizationMetrics());
     }
@@ -140,7 +140,7 @@ public class GpuController {
      */
     @Operation(summary = "上报GPU worker心跳", description = "仅管理员")
     @PostMapping("/{gpuId}/heartbeat")
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','gpu:heartbeat')")
     public Result<Map<String, Object>> heartbeat(@PathVariable Long gpuId) {
         workerHeartbeatService.beat(gpuId);
         return Result.success(Map.of(

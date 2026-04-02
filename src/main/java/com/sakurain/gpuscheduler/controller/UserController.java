@@ -38,7 +38,7 @@ import java.util.List;
 @SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/users")
-@PreAuthorize("hasAnyAuthority('ROLE_ADMIN')")
+@PreAuthorize("hasAnyAuthority('ROLE_ADMIN','user:manage')")
 @Validated
 public class UserController {
 

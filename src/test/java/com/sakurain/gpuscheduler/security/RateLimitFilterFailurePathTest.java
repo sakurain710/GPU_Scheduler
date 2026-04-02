@@ -15,6 +15,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.util.ReflectionTestUtils;
 import io.lettuce.core.api.StatefulRedisConnection;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
@@ -58,6 +59,8 @@ class RateLimitFilterFailurePathTest {
         rateLimitFilter.doFilter(request, response, filterChain);
 
         assertThat(response.getStatus()).isEqualTo(503);
+        JsonNode body = new ObjectMapper().readTree(response.getContentAsString());
+        assertThat(body.get("errorCode").asText()).isEqualTo("AUTH_RATE_LIMIT_BACKEND_UNAVAILABLE");
         verify(filterChain, never()).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 

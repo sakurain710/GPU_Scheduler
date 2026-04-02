@@ -28,7 +28,7 @@ import java.io.IOException;
 import java.time.Duration;
 
 /**
- * 限流过滤器
+ * API 限流过滤器，支持登录与普通接口双桶策略。
  */
 @Slf4j
 @Component
@@ -133,11 +133,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
                                         boolean isAuthPath,
                                         Exception ex) throws IOException, ServletException {
         if (isAuthPath && failClosedAuth) {
-            log.error("认证接口限流后端不可用，按fail-closed拒绝: path={}, err={}", request.getRequestURI(), ex.getMessage());
+            log.error("认证接口限流后端不可用，按 fail-closed 拒绝: path={}, err={}",
+                    request.getRequestURI(), ex.getMessage());
             writeServiceUnavailableResponse(response);
             return;
         }
-        log.warn("Redis不可用，限流降级为fail-open: path={}, err={}", request.getRequestURI(), ex.getMessage());
+        log.warn("Redis 不可用，限流降级为 fail-open: path={}, err={}", request.getRequestURI(), ex.getMessage());
         filterChain.doFilter(request, response);
     }
 
@@ -171,7 +172,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 return "user:" + userId;
             }
         } catch (Exception ignored) {
-            // 解析失败降级到IP
+            // token 解析失败时降级到 IP 维度限流
         }
         return "ip:" + getClientIp(request);
     }
@@ -194,10 +195,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         response.setHeader("Retry-After", String.valueOf(retryAfterSeconds));
         response.setHeader("X-RateLimit-Remaining", "0");
 
-        Result<Void> result = Result.<Void>builder()
-                .code(429)
-                .message("请求过于频繁，请稍后重试")
-                .build();
+        Result<Void> result = Result.error(429, "RATE_LIMIT_EXCEEDED", "请求过于频繁，请稍后重试");
         response.getWriter().write(objectMapper.writeValueAsString(result));
     }
 
@@ -205,10 +203,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
         response.setStatus(503);
         response.setContentType("application/json;charset=UTF-8");
 
-        Result<Void> result = Result.<Void>builder()
-                .code(503)
-                .message("认证服务限流后端不可用，请稍后重试")
-                .build();
+        Result<Void> result = Result.error(
+                503,
+                "AUTH_RATE_LIMIT_BACKEND_UNAVAILABLE",
+                "认证服务限流后端不可用，请稍后重试"
+        );
         response.getWriter().write(objectMapper.writeValueAsString(result));
     }
 }

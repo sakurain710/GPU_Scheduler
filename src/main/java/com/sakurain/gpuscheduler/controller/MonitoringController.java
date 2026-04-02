@@ -42,7 +42,7 @@ public class MonitoringController {
      */
     @Operation(summary = "获取系统健康状态", description = "仅管理员")
     @GetMapping("/health")
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','monitoring:read')")
     public Result<SystemHealth> health() {
         return Result.success(monitoringService.getSystemHealth());
     }
@@ -54,7 +54,7 @@ public class MonitoringController {
      */
     @Operation(summary = "获取合并指标", description = "仅管理员")
     @GetMapping("/metrics")
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','monitoring:read')")
     public Result<MetricsResponse> metrics() {
         TaskMetrics taskMetrics = monitoringService.getTaskMetrics();
         GpuMetrics gpuMetrics = monitoringService.getGpuMetrics();

@@ -101,6 +101,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private void writeUnauthorized(HttpServletResponse response, String message) throws IOException {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write(new ObjectMapper().writeValueAsString(Result.error(401, message)));
+        response.getWriter().write(new ObjectMapper().writeValueAsString(
+                Result.error(401, "AUTH_TOKEN_TYPE_INVALID", message)
+        ));
     }
 }

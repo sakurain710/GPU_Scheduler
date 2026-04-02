@@ -32,7 +32,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 幂等过滤器：支持请求指纹校验，防止同一个X-Request-Id被不同请求体复用
+ * 幂等过滤器：同一 X-Request-Id 重放时，校验请求指纹一致性。
  */
 @Slf4j
 @Component
@@ -114,7 +114,7 @@ public class IdempotencyFilter extends OncePerRequestFilter {
 
             wrappedResponse.copyBodyToResponse();
         } catch (RedisConnectionFailureException e) {
-            log.warn("Redis不可用，幂等校验降级为fail-open: {}", e.getMessage());
+            log.warn("Redis 不可用，幂等校验降级为 fail-open: {}", e.getMessage());
             filterChain.doFilter(wrappedRequest, response);
         }
     }
@@ -128,17 +128,14 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             byte[] hash = digest.digest(raw.getBytes(StandardCharsets.UTF_8));
             return Base64.getEncoder().encodeToString(hash);
         } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256算法不可用", e);
+            throw new IllegalStateException("SHA-256 算法不可用", e);
         }
     }
 
     private void writeConflictResponse(HttpServletResponse response) throws IOException {
         response.setStatus(409);
         response.setContentType("application/json;charset=UTF-8");
-        Result<Void> result = Result.<Void>builder()
-                .code(409)
-                .message("X-Request-Id重复且请求内容不一致")
-                .build();
+        Result<Void> result = Result.error(409, "IDEMPOTENCY_CONFLICT", "X-Request-Id重复且请求内容不一致");
         response.getWriter().write(objectMapper.writeValueAsString(result));
     }
 
@@ -147,7 +144,8 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             int httpStatus,
             String contentType,
             String responseBody
-    ) {}
+    ) {
+    }
 
     private static class CachedBodyRequest extends HttpServletRequestWrapper {
         private final byte[] body;

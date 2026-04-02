@@ -19,7 +19,7 @@ import java.util.List;
 @SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/rbac")
-@PreAuthorize("hasAnyAuthority('ROLE_ADMIN')")
+@PreAuthorize("hasAnyAuthority('ROLE_ADMIN','rbac:read')")
 public class RbacDictionaryController {
 
     private final RbacDictionaryService rbacDictionaryService;
