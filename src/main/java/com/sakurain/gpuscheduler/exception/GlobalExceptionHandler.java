@@ -3,6 +3,7 @@ package com.sakurain.gpuscheduler.exception;
 import com.sakurain.gpuscheduler.dto.Result;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
@@ -17,28 +18,27 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * 全局异常处理器
- */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    /**
-     * 处理业务异常
-     */
     @ExceptionHandler(BusinessException.class)
-    public Result<Void> handleBusinessException(BusinessException ex) {
+    public ResponseEntity<Result<Void>> handleBusinessException(BusinessException ex) {
         log.warn("业务异常: code={}, message={}", ex.getCode(), ex.getMessage());
-        return Result.<Void>builder()
+
+        HttpStatus status = HttpStatus.resolve(ex.getHttpStatus());
+        if (status == null) {
+            status = HttpStatus.BAD_REQUEST;
+        }
+
+        Result<Void> body = Result.<Void>builder()
                 .code(ex.getHttpStatus())
                 .message(ex.getMessage())
                 .build();
+
+        return ResponseEntity.status(status).body(body);
     }
 
-    /**
-     * 处理请求频率超限异常
-     */
     @ExceptionHandler(RateLimitException.class)
     @ResponseStatus(HttpStatus.TOO_MANY_REQUESTS)
     public Result<Void> handleRateLimitException(RateLimitException ex) {
@@ -49,9 +49,6 @@ public class GlobalExceptionHandler {
                 .build();
     }
 
-    /**
-     * 处理 Spring Security 认证异常
-     */
     @ExceptionHandler(AuthenticationException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public Result<Void> handleAuthenticationException(AuthenticationException ex) {
@@ -72,9 +69,6 @@ public class GlobalExceptionHandler {
                 .build();
     }
 
-    /**
-     * 处理 Spring Security 授权异常
-     */
     @ExceptionHandler(AccessDeniedException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public Result<Void> handleAccessDeniedException(AccessDeniedException ex) {
@@ -85,13 +79,10 @@ public class GlobalExceptionHandler {
                 .build();
     }
 
-    /**
-     * 处理参数验证异常
-     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Result<Map<String, String>> handleValidationException(MethodArgumentNotValidException ex) {
-        log.warn("参数验证失败: {}", ex.getMessage());
+        log.warn("参数校验失败: {}", ex.getMessage());
 
         Map<String, String> errors = new HashMap<>();
         ex.getBindingResult().getAllErrors().forEach(error -> {
@@ -102,14 +93,11 @@ public class GlobalExceptionHandler {
 
         return Result.<Map<String, String>>builder()
                 .code(400)
-                .message("参数验证失败")
+                .message("参数校验失败")
                 .data(errors)
                 .build();
     }
 
-    /**
-     * 处理通用异常
-     */
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Result<Void> handleException(Exception ex) {

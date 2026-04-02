@@ -139,9 +139,7 @@ java -jar target/gpu-scheduler-0.0.1-SNAPSHOT.jar
 - 任务管理：`/api/task/*`（提交、查询、取消、审批）
 - 运维控制：`/api/ops/*`（调度暂停/恢复、DLQ、强制操作）
 - 监控：`/api/health`、`/api/metrics`
-- RBAC：`/api/users/*`、`/api/roles/*`
-
-接口同时兼容 `/api/v1/...` 前缀。
+- RBAC：`/api/users/*`、`/api/roles/*`、`/api/rbac/*`
 
 ## 8. 调度与状态流转说明
 
