@@ -64,7 +64,7 @@ public class User {
     private Integer gender;
 
     /**
-     * 用户类型：1=普通用户 2=管理员 3=超级管理员
+     * 用户类型：1=普通用户 2=任务审核员(Reviewer) 3=系统管理员(Admin)
      */
     @TableField("user_type")
     private Integer userType;

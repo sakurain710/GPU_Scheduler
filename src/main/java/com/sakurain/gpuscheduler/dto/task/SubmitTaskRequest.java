@@ -33,7 +33,7 @@ public class SubmitTaskRequest {
     @Size(max = 65535, message = "描述过长")
     private String description;
 
-    @Schema(description = "Task type", example = "TRAINING")
+    @Schema(description = "Task type", example = "model_training")
     @NotBlank(message = "任务类型不能为空")
     @Size(max = 64, message = "任务类型不能超过64个字符")
     private String taskType;

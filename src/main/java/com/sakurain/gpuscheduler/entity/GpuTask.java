@@ -108,7 +108,7 @@ public class GpuTask {
     private BigDecimal actualSeconds;
 
     /**
-     * 状态：1=Pending 2=Queued 3=Running 4=Completed 5=Failed 6=Cancelled
+     * 状态：1=Pending 2=Queued 3=Running 4=Completed 5=Failed 6=Cancelled 7=PendingApproval 8=Rejected
      */
     @TableField("status")
     private Integer status;
