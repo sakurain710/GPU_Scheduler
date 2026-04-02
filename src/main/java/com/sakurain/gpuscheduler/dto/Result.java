@@ -23,6 +23,12 @@ public class Result<T> {
     private Integer code;
 
     /**
+     * Optional business error code for frontend branching.
+     */
+    @Schema(description = "Business error code", example = "TASK_NOT_RUNNING")
+    private String errorCode;
+
+    /**
      * 响应消息
      */
     @Schema(description = "Response message", example = "Operation successful")
@@ -82,6 +88,17 @@ public class Result<T> {
     public static <T> Result<T> error(Integer code, String message) {
         return Result.<T>builder()
                 .code(code)
+                .message(message)
+                .build();
+    }
+
+    /**
+     * Error response with optional business error code.
+     */
+    public static <T> Result<T> error(Integer code, String errorCode, String message) {
+        return Result.<T>builder()
+                .code(code)
+                .errorCode(errorCode)
                 .message(message)
                 .build();
     }

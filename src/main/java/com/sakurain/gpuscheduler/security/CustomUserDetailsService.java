@@ -1,7 +1,9 @@
 package com.sakurain.gpuscheduler.security;
 
+import com.sakurain.gpuscheduler.entity.Permission;
 import com.sakurain.gpuscheduler.entity.Role;
 import com.sakurain.gpuscheduler.entity.User;
+import com.sakurain.gpuscheduler.mapper.PermissionMapper;
 import com.sakurain.gpuscheduler.mapper.RoleMapper;
 import com.sakurain.gpuscheduler.mapper.UserMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -12,6 +14,7 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 自定义用户认证服务
@@ -23,11 +26,15 @@ public class CustomUserDetailsService implements UserDetailsService {
 
     private final UserMapper userMapper;
     private final RoleMapper roleMapper;
+    private final PermissionMapper permissionMapper;
 
     @Autowired
-    public CustomUserDetailsService(UserMapper userMapper, RoleMapper roleMapper) {
+    public CustomUserDetailsService(UserMapper userMapper,
+                                    RoleMapper roleMapper,
+                                    PermissionMapper permissionMapper) {
         this.userMapper = userMapper;
         this.roleMapper = roleMapper;
+        this.permissionMapper = permissionMapper;
     }
 
     @Override
@@ -45,8 +52,8 @@ public class CustomUserDetailsService implements UserDetailsService {
         List<Role> roles = roleMapper.selectByUserId(user.getId());
         log.debug("用户 {} 拥有 {} 个角色", username, roles.size());
 
-        // 构建 CustomUserDetails
-        return new CustomUserDetails(user, roles);
+        List<String> permissionCodes = loadPermissionCodes(user.getId());
+        return new CustomUserDetails(user, roles, permissionCodes);
     }
 
     /**
@@ -66,7 +73,16 @@ public class CustomUserDetailsService implements UserDetailsService {
         // 查询用户的角色列表
         List<Role> roles = roleMapper.selectByUserId(user.getId());
 
-        // 构建 CustomUserDetails
-        return new CustomUserDetails(user, roles);
+        List<String> permissionCodes = loadPermissionCodes(user.getId());
+        return new CustomUserDetails(user, roles, permissionCodes);
+    }
+
+    private List<String> loadPermissionCodes(Long userId) {
+        List<Permission> permissions = permissionMapper.selectByUserId(userId);
+        return permissions.stream()
+                .map(Permission::getCode)
+                .filter(code -> code != null && !code.isBlank())
+                .distinct()
+                .collect(Collectors.toList());
     }
 }

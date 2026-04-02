@@ -33,6 +33,7 @@ public class GlobalExceptionHandler {
 
         Result<Void> body = Result.<Void>builder()
                 .code(ex.getHttpStatus())
+                .errorCode(ex.getCode())
                 .message(ex.getMessage())
                 .build();
 

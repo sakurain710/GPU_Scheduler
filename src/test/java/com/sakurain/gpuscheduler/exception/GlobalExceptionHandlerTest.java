@@ -18,6 +18,7 @@ class GlobalExceptionHandlerTest {
 
         assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
         assertEquals(403, response.getBody().getCode());
+        assertEquals("TASK_FORBIDDEN", response.getBody().getErrorCode());
         assertEquals("no permission", response.getBody().getMessage());
     }
 }

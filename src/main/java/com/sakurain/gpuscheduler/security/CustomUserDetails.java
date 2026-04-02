@@ -8,7 +8,9 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -23,17 +25,23 @@ public class CustomUserDetails implements UserDetails {
     private final String password;
     private final Integer status;
     private final List<Role> roles;
+    private final List<String> permissionCodes;
     private final Collection<? extends GrantedAuthority> authorities;
 
-    public CustomUserDetails(User user, List<Role> roles) {
+    public CustomUserDetails(User user, List<Role> roles, List<String> permissionCodes) {
         this.userId = user.getId();
         this.username = user.getUsername();
         this.password = user.getPassword();
         this.status = user.getStatus();
         this.roles = roles;
-        // 将角色转换为 Spring Security 的 GrantedAuthority
-        this.authorities = roles.stream()
-                .map(role -> new SimpleGrantedAuthority(role.getCode()))
+        this.permissionCodes = permissionCodes == null ? List.of() : permissionCodes;
+
+        Set<String> authorityCodes = new LinkedHashSet<>();
+        roles.stream().map(Role::getCode).forEach(authorityCodes::add);
+        this.permissionCodes.forEach(authorityCodes::add);
+
+        this.authorities = authorityCodes.stream()
+                .map(SimpleGrantedAuthority::new)
                 .collect(Collectors.toList());
     }
 
