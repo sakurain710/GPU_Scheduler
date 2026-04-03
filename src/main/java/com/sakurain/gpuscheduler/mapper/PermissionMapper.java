@@ -41,4 +41,19 @@ public interface PermissionMapper extends BaseMapper<Permission> {
             "AND p.status = 1 " +
             "AND (ur.expires_at IS NULL OR ur.expires_at > NOW())")
     List<Permission> selectByUserId(@Param("userId") Long userId);
+
+    /**
+     * 根据用户ID与资源类型查询权限（通过用户->角色->权限->资源）
+     */
+    @Select("SELECT DISTINCT p.* FROM permission p " +
+            "INNER JOIN role_permission rp ON p.id = rp.permission_id " +
+            "INNER JOIN user_role ur ON rp.role_id = ur.role_id " +
+            "INNER JOIN resource r ON p.resource_id = r.id " +
+            "WHERE ur.user_id = #{userId} " +
+            "AND r.type = #{resourceType} " +
+            "AND p.status = 1 " +
+            "AND r.status = 1 " +
+            "AND (ur.expires_at IS NULL OR ur.expires_at > NOW())")
+    List<Permission> selectByUserIdAndResourceType(@Param("userId") Long userId,
+                                                   @Param("resourceType") Integer resourceType);
 }
