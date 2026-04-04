@@ -2,6 +2,7 @@ package com.sakurain.gpuscheduler.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.sakurain.gpuscheduler.dto.Result;
+import com.sakurain.gpuscheduler.dto.task.BatchApproveRequest;
 import com.sakurain.gpuscheduler.dto.task.RejectTaskRequest;
 import com.sakurain.gpuscheduler.dto.task.SubmitTaskRequest;
 import com.sakurain.gpuscheduler.dto.task.TaskResponse;
@@ -28,14 +29,16 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 /**
  * GPU任务管理
  */
 @Slf4j
-@Tag(name = "GPU任务管理", description = "提交、查询和取消GPU任务")
+@Tag(name = "GPU任务管理", description = "提交、查询和审批GPU任务")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
-@RequestMapping({"/api/task", "/api/tasks"})
+@RequestMapping("/api/tasks")
 @Validated
 public class GpuTaskController {
 
@@ -46,9 +49,6 @@ public class GpuTaskController {
         this.gpuTaskService = gpuTaskService;
     }
 
-    /**
-     * 提交GPU计算任务
-     */
     @Operation(summary = "提交GPU任务")
     @PostMapping("/submit")
     public Result<TaskResponse> submitTask(@Valid @RequestBody SubmitTaskRequest request) {
@@ -61,9 +61,6 @@ public class GpuTaskController {
         return Result.success("任务提交成功", response);
     }
 
-    /**
-     * 查询任务详情
-     */
     @Operation(summary = "获取任务详情")
     @GetMapping("/{taskId}")
     public Result<TaskResponse> getTask(@PathVariable Long taskId) {
@@ -72,9 +69,6 @@ public class GpuTaskController {
         return Result.success(response);
     }
 
-    /**
-     * 用户任务列表
-     */
     @Operation(summary = "列出当前用户任务", description = "支持分页、状态过滤和排序")
     @GetMapping("/my")
     public Result<IPage<TaskResponse>> listMyTasks(
@@ -89,9 +83,6 @@ public class GpuTaskController {
         return Result.success(gpuTaskService.listUserTasks(userId, page, size, status, sortBy, sortDir));
     }
 
-    /**
-     * 取消任务
-     */
     @Operation(summary = "取消任务")
     @PostMapping("/{taskId}/cancel")
     public Result<Void> cancelTask(@PathVariable Long taskId) {
@@ -129,6 +120,22 @@ public class GpuTaskController {
         String reason = request != null ? request.getReason() : null;
         TaskResponse response = gpuTaskService.rejectTask(taskId, currentUser.getUserId(), reason);
         return Result.success(response);
+    }
+
+    @Operation(summary = "批量审批通过任务")
+    @PostMapping("/approval/batch/approve")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_TASK_REVIEWER','task:approval:review')")
+    public Result<List<TaskResponse>> batchApproveTasks(@Valid @RequestBody BatchApproveRequest request) {
+        CustomUserDetails currentUser = getCurrentUserDetails();
+        return Result.success(gpuTaskService.batchApproveTasks(request.getTaskIds(), currentUser.getUserId()));
+    }
+
+    @Operation(summary = "批量审批拒绝任务")
+    @PostMapping("/approval/batch/reject")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_TASK_REVIEWER','task:approval:review')")
+    public Result<List<TaskResponse>> batchRejectTasks(@Valid @RequestBody BatchApproveRequest request) {
+        CustomUserDetails currentUser = getCurrentUserDetails();
+        return Result.success(gpuTaskService.batchRejectTasks(request.getTaskIds(), currentUser.getUserId(), request.getReason()));
     }
 
     private Long getCurrentUserId() {

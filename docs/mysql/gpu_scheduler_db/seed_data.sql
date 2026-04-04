@@ -22,7 +22,7 @@ ON DUPLICATE KEY UPDATE
   `status` = VALUES(`status`);
 
 -- ------------------------------------------------------------
--- 2) Resources (Menu / API / Button)
+-- 2) Resources (Menu / API / Button / Data)
 -- ------------------------------------------------------------
 INSERT INTO `resource` (`code`, `name`, `type`, `parent_id`, `path`, `sort_order`, `description`, `status`)
 VALUES
@@ -40,7 +40,8 @@ VALUES
   ('btn:ops:manage', 'Ops Manage Button', 3, (SELECT id FROM (SELECT id FROM resource WHERE code = 'menu:gpu' LIMIT 1) t), 'ops-manage-btn', 304, '运维操作按钮', 1),
   ('api:user:manage', 'Manage User', 2, (SELECT id FROM (SELECT id FROM resource WHERE code = 'menu:admin' LIMIT 1) t), '/api/users', 401, '用户管理接口', 1),
   ('api:role:manage', 'Manage Role', 2, (SELECT id FROM (SELECT id FROM resource WHERE code = 'menu:admin' LIMIT 1) t), '/api/roles', 402, '角色管理接口', 1),
-  ('api:rbac:read', 'Read RBAC Dictionary', 2, (SELECT id FROM (SELECT id FROM resource WHERE code = 'menu:admin' LIMIT 1) t), '/api/rbac', 403, 'RBAC 字典接口', 1)
+  ('api:rbac:read', 'Read RBAC Dictionary', 2, (SELECT id FROM (SELECT id FROM resource WHERE code = 'menu:admin' LIMIT 1) t), '/api/rbac', 403, 'RBAC 字典接口', 1),
+  ('data:scope:project', 'Project Scope Data Resource', 4, (SELECT id FROM (SELECT id FROM resource WHERE code = 'menu:admin' LIMIT 1) t), 'project_scope', 404, '数据域资源预留（未启用）', 1)
 ON DUPLICATE KEY UPDATE
   `name` = VALUES(`name`),
   `type` = VALUES(`type`),

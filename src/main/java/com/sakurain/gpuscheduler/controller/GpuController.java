@@ -39,7 +39,7 @@ import java.util.Map;
 @Tag(name = "GPU资源管理", description = "GPU注册、查询、状态更新和指标")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
-@RequestMapping({"/api/gpu", "/api/gpus"})
+@RequestMapping("/api/gpus")
 @Validated
 public class GpuController {
 
@@ -51,9 +51,6 @@ public class GpuController {
         this.workerHeartbeatService = workerHeartbeatService;
     }
 
-    /**
-     * 列出GPU，支持分页、过滤和排序。
-     */
     @Operation(summary = "列出GPU", description = "支持分页、状态过滤和排序")
     @GetMapping
     public Result<IPage<GpuResponse>> listGpus(
@@ -70,18 +67,12 @@ public class GpuController {
         return Result.success(gpuService.listGpus(page, size, status, sortBy, sortDir));
     }
 
-    /**
-     * 查询GPU详情。
-     */
     @Operation(summary = "根据ID获取GPU")
     @GetMapping("/{gpuId}")
     public Result<GpuResponse> getGpu(@PathVariable Long gpuId) {
         return Result.success(gpuService.getGpu(gpuId));
     }
 
-    /**
-     * 注册新GPU，仅管理员。
-     */
     @Operation(summary = "注册GPU", description = "仅管理员")
     @PostMapping
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','gpu:write')")
@@ -91,9 +82,6 @@ public class GpuController {
         return Result.success("GPU注册成功", response);
     }
 
-    /**
-     * 更新GPU状态，仅管理员。
-     */
     @Operation(summary = "更新GPU状态", description = "仅管理员")
     @PutMapping("/{gpuId}/status")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','gpu:write')")
@@ -104,9 +92,6 @@ public class GpuController {
         return Result.success("GPU状态更新成功", response);
     }
 
-    /**
-     * 删除GPU，仅管理员。
-     */
     @Operation(summary = "删除GPU", description = "仅管理员")
     @DeleteMapping("/{gpuId}")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','gpu:write')")
@@ -115,9 +100,6 @@ public class GpuController {
         return Result.success();
     }
 
-    /**
-     * GPU健康检查，仅管理员。
-     */
     @Operation(summary = "GPU健康摘要", description = "仅管理员")
     @GetMapping("/health")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','gpu:read')")
@@ -125,9 +107,6 @@ public class GpuController {
         return Result.success(gpuService.healthCheck());
     }
 
-    /**
-     * GPU利用率指标，仅管理员。
-     */
     @Operation(summary = "GPU利用率指标", description = "仅管理员")
     @GetMapping("/metrics")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','gpu:read')")
@@ -135,9 +114,6 @@ public class GpuController {
         return Result.success(gpuService.utilizationMetrics());
     }
 
-    /**
-     * 上报GPU worker心跳，仅管理员。
-     */
     @Operation(summary = "上报GPU worker心跳", description = "仅管理员")
     @PostMapping("/{gpuId}/heartbeat")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','gpu:heartbeat')")

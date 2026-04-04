@@ -24,6 +24,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 /**
@@ -245,6 +247,26 @@ public class GpuTaskService {
         return getTask(taskId);
     }
 
+    @Transactional
+    public List<TaskResponse> batchApproveTasks(List<Long> taskIds, Long approverId) {
+        List<Long> normalizedTaskIds = normalizeTaskIds(taskIds);
+        List<TaskResponse> responses = new ArrayList<>(normalizedTaskIds.size());
+        for (Long taskId : normalizedTaskIds) {
+            responses.add(approveTask(taskId, approverId));
+        }
+        return responses;
+    }
+
+    @Transactional
+    public List<TaskResponse> batchRejectTasks(List<Long> taskIds, Long approverId, String reason) {
+        List<Long> normalizedTaskIds = normalizeTaskIds(taskIds);
+        List<TaskResponse> responses = new ArrayList<>(normalizedTaskIds.size());
+        for (Long taskId : normalizedTaskIds) {
+            responses.add(rejectTask(taskId, approverId, reason));
+        }
+        return responses;
+    }
+
     /**
      * 抢占运行任务并重入队
      */
@@ -360,6 +382,19 @@ public class GpuTaskService {
         if (!hasApprovalRole && (task.getUserId() == null || !task.getUserId().equals(requesterId))) {
             throw new BusinessException("TASK_FORBIDDEN", "No permission to access this task", 403);
         }
+    }
+
+    private List<Long> normalizeTaskIds(List<Long> taskIds) {
+        if (taskIds == null || taskIds.isEmpty()) {
+            throw new BusinessException("TASK_BATCH_EMPTY", "taskIds cannot be empty", 400);
+        }
+        if (taskIds.size() > 100) {
+            throw new BusinessException("TASK_BATCH_LIMIT_EXCEEDED", "batch size exceeds 100", 400);
+        }
+        if (taskIds.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new BusinessException("TASK_BATCH_ID_INVALID", "taskId must be positive", 400);
+        }
+        return List.copyOf(new LinkedHashSet<>(taskIds));
     }
 
     private void writeAudit(Long taskId, Long gpuId, TaskStatus oldStatus, TaskStatus newStatus, Long operatorId) {

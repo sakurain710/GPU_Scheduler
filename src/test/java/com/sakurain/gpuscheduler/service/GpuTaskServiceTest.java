@@ -7,6 +7,7 @@ import com.sakurain.gpuscheduler.entity.GpuTask;
 import com.sakurain.gpuscheduler.entity.GpuTaskLog;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.exception.InvalidTaskStateException;
+import com.sakurain.gpuscheduler.exception.BusinessException;
 import com.sakurain.gpuscheduler.exception.ResourceNotFoundException;
 import com.sakurain.gpuscheduler.mapper.GpuMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskLogMapper;
@@ -223,5 +224,29 @@ class GpuTaskServiceTest {
     void getTask_notFound_throws() {
         when(taskMapper.selectById(999L)).thenReturn(null);
         assertThrows(ResourceNotFoundException.class, () -> gpuTaskService.getTask(999L));
+    }
+
+    @Test
+    void batchApproveTasks_shouldDeduplicateAndApprove() {
+        GpuTaskService spy = spy(gpuTaskService);
+        doReturn(TaskResponse.builder().id(10L).status(TaskStatus.QUEUED.getCode()).statusLabel("Queued").build())
+                .when(spy).approveTask(10L, 9L);
+        doReturn(TaskResponse.builder().id(11L).status(TaskStatus.QUEUED.getCode()).statusLabel("Queued").build())
+                .when(spy).approveTask(11L, 9L);
+
+        List<TaskResponse> result = spy.batchApproveTasks(List.of(10L, 10L, 11L), 9L);
+
+        assertEquals(2, result.size());
+        assertEquals(10L, result.get(0).getId());
+        assertEquals(11L, result.get(1).getId());
+        verify(spy, times(1)).approveTask(10L, 9L);
+        verify(spy, times(1)).approveTask(11L, 9L);
+    }
+
+    @Test
+    void batchRejectTasks_withInvalidTaskId_shouldThrow() {
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> gpuTaskService.batchRejectTasks(List.of(1L, 0L), 9L, "invalid"));
+        assertEquals("TASK_BATCH_ID_INVALID", ex.getCode());
     }
 }

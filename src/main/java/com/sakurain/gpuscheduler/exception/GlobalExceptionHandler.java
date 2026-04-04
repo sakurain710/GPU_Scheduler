@@ -46,6 +46,7 @@ public class GlobalExceptionHandler {
         log.warn("请求频率超限: {}", ex.getMessage());
         return Result.<Void>builder()
                 .code(429)
+                .errorCode("RATE_LIMIT_EXCEEDED")
                 .message(ex.getMessage())
                 .build();
     }
@@ -56,16 +57,21 @@ public class GlobalExceptionHandler {
         log.warn("认证失败: {}", ex.getMessage());
 
         String message = "认证失败";
+        String errorCode = "AUTH_UNAUTHORIZED";
         if (ex instanceof BadCredentialsException) {
             message = "用户名或密码错误";
+            errorCode = "AUTH_BAD_CREDENTIALS";
         } else if (ex instanceof DisabledException) {
             message = "账户已被禁用";
+            errorCode = "AUTH_ACCOUNT_DISABLED";
         } else if (ex instanceof InsufficientAuthenticationException) {
             message = "未提供有效的认证凭证";
+            errorCode = "AUTH_CREDENTIAL_MISSING";
         }
 
         return Result.<Void>builder()
                 .code(401)
+                .errorCode(errorCode)
                 .message(message)
                 .build();
     }
@@ -76,6 +82,7 @@ public class GlobalExceptionHandler {
         log.warn("权限不足: {}", ex.getMessage());
         return Result.<Void>builder()
                 .code(403)
+                .errorCode("AUTH_ACCESS_DENIED")
                 .message("权限不足，无法访问该资源")
                 .build();
     }
@@ -94,6 +101,7 @@ public class GlobalExceptionHandler {
 
         return Result.<Map<String, String>>builder()
                 .code(400)
+                .errorCode("COMMON_VALIDATION_ERROR")
                 .message("参数校验失败")
                 .data(errors)
                 .build();
@@ -105,6 +113,7 @@ public class GlobalExceptionHandler {
         log.error("系统异常: ", ex);
         return Result.<Void>builder()
                 .code(500)
+                .errorCode("COMMON_INTERNAL_ERROR")
                 .message("系统内部错误，请稍后重试")
                 .build();
     }
