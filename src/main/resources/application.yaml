@@ -24,7 +24,7 @@
     serialization:
       write-dates-as-timestamps: false
 
-  # 瀹夊叏瑕佹眰锛氭暟鎹簱鍑嵁蹇呴』鐢辩幆澧冨彉閲忔敞鍏?  datasource:
+  datasource:
     type: com.alibaba.druid.pool.DruidDataSource
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: ${DB_URL}
@@ -39,7 +39,7 @@ mybatis-plus:
     log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
 
 jwt:
-  # 瀹夊叏瑕佹眰锛氬繀椤婚€氳繃鐜鍙橀噺閰嶇疆锛屼笉鍏佽榛樿寮卞瘑閽?  secret-key: ${JWT_SECRET_KEY}
+  # secret-key: ${JWT_SECRET_KEY}
   access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:86400000}
   refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION:604800000}
   issuer: ${JWT_ISSUER:gpu-scheduler}
@@ -53,7 +53,6 @@ rate-limit:
   api:
     capacity: 100
     refill-duration: 60
-  # 璁よ瘉鎺ュ彛鍦≧edis涓嶅彲鐢ㄦ椂榛樿fail-closed
   fail-closed-auth: true
 
 idempotency:

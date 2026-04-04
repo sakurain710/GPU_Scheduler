@@ -78,9 +78,9 @@ ON DUPLICATE KEY UPDATE
 -- ------------------------------------------------------------
 INSERT INTO `user` (`username`, `password`, `nickname`, `email`, `user_type`, `status`, `created_by`)
 VALUES
-  ('admin', '$2a$10$7EqJtq98hPqEX7fNZaFWoO.H7h7H5f1fJf0hB1iKsFcfoTmyaKOe.', 'Admin', 'admin@gpu-scheduler.local', 3, 1, NULL),
-  ('reviewer', '$2a$10$7EqJtq98hPqEX7fNZaFWoO.H7h7H5f1fJf0hB1iKsFcfoTmyaKOe.', 'Reviewer', 'reviewer@gpu-scheduler.local', 2, 1, NULL),
-  ('normal', '$2a$10$7EqJtq98hPqEX7fNZaFWoO.H7h7H5f1fJf0hB1iKsFcfoTmyaKOe.', 'Normal', 'normal@gpu-scheduler.local', 1, 1, NULL)
+  ('admin', '$2a$10$dg0IsIQE5ie0jFonuL7zLef8DN8G0vk9TscotnXgzwYKURCpthncq', 'Admin', 'admin@gpu-scheduler.local', 3, 1, NULL),
+  ('reviewer', '$2a$10$dg0IsIQE5ie0jFonuL7zLef8DN8G0vk9TscotnXgzwYKURCpthncq', 'Reviewer', 'reviewer@gpu-scheduler.local', 2, 1, NULL),
+  ('normal', '$2a$10$dg0IsIQE5ie0jFonuL7zLef8DN8G0vk9TscotnXgzwYKURCpthncq', 'Normal', 'normal@gpu-scheduler.local', 1, 1, NULL)
 ON DUPLICATE KEY UPDATE
   `password` = VALUES(`password`),
   `nickname` = VALUES(`nickname`),
