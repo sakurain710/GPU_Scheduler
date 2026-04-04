@@ -1,6 +1,8 @@
 package com.sakurain.gpuscheduler.dto.role;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -27,7 +29,9 @@ public class CreateRoleRequest {
     @Schema(description = "Role description")
     private String description;
 
-    @Schema(description = "Role type")
+    @Schema(description = "Role type: 1=System, 2=Custom, 3=Temporary", example = "1")
+    @Min(value = 1, message = "roleType最小值为1")
+    @Max(value = 3, message = "roleType最大值为3")
     private Integer roleType = 1;
 
     @Schema(description = "Status: 0=disabled,1=enabled")

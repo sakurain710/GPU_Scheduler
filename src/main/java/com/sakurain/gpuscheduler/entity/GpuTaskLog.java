@@ -35,7 +35,7 @@ public class GpuTaskLog {
     private Long gpuId;
 
     /**
-     * 事件类型：QUEUED / DISPATCHED / STARTED / COMPLETED / FAILED / CANCELLED
+     * 事件类型（UPPER_SNAKE_CASE）：QUEUED / DISPATCHED / COMPLETED / FAILED / CANCELLED / PENDING_APPROVAL / REJECTED
      */
     @TableField("event")
     private String event;

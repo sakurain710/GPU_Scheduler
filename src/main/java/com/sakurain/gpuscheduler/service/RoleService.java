@@ -7,6 +7,7 @@ import com.sakurain.gpuscheduler.entity.Permission;
 import com.sakurain.gpuscheduler.entity.Role;
 import com.sakurain.gpuscheduler.entity.RolePermission;
 import com.sakurain.gpuscheduler.entity.UserRole;
+import com.sakurain.gpuscheduler.enums.RoleType;
 import com.sakurain.gpuscheduler.exception.BusinessException;
 import com.sakurain.gpuscheduler.exception.DuplicateResourceException;
 import com.sakurain.gpuscheduler.exception.ResourceNotFoundException;
@@ -52,6 +53,7 @@ public class RoleService {
     @Transactional
     public RoleResponse createRole(CreateRoleRequest request) {
         log.info("创建角色: code={}, name={}", request.getCode(), request.getName());
+        validateRoleType(request.getRoleType());
 
         // 检查角色编码是否已存在
         Role existingRole = roleMapper.selectByCode(request.getCode());
@@ -104,6 +106,7 @@ public class RoleService {
             role.setDescription(request.getDescription());
         }
         if (request.getRoleType() != null) {
+            validateRoleType(request.getRoleType());
             role.setRoleType(request.getRoleType());
         }
         if (request.getStatus() != null) {
@@ -334,4 +337,14 @@ public class RoleService {
                 .updatedAt(role.getUpdatedAt())
                 .build();
     }
+    private void validateRoleType(Integer roleType) {
+        if (!RoleType.isValid(roleType)) {
+            throw new BusinessException(
+                    "ROLE_TYPE_INVALID",
+                    "roleType must be one of 1(System), 2(Custom), 3(Temporary)",
+                    400
+            );
+        }
+    }
 }
+

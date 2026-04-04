@@ -1,6 +1,7 @@
 package com.sakurain.gpuscheduler.scheduler;
 
 import com.sakurain.gpuscheduler.enums.TaskStatus;
+import com.sakurain.gpuscheduler.enums.TaskLogEvent;
 import com.sakurain.gpuscheduler.exception.InvalidTaskStateException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -58,14 +59,14 @@ public class TaskStateMachine {
      */
     public String resolveEvent(TaskStatus to) {
         return switch (to) {
-            case QUEUED    -> "QUEUED";
-            case RUNNING   -> "DISPATCHED";
-            case COMPLETED -> "COMPLETED";
-            case FAILED    -> "FAILED";
-            case CANCELLED -> "CANCELLED";
-            case PENDING_APPROVAL -> "PENDING_APPROVAL";
-            case REJECTED -> "REJECTED";
-            default        -> to.getLabel().toUpperCase();
+            case QUEUED -> TaskLogEvent.QUEUED.getCode();
+            case RUNNING -> TaskLogEvent.DISPATCHED.getCode();
+            case COMPLETED -> TaskLogEvent.COMPLETED.getCode();
+            case FAILED -> TaskLogEvent.FAILED.getCode();
+            case CANCELLED -> TaskLogEvent.CANCELLED.getCode();
+            case PENDING_APPROVAL -> TaskLogEvent.PENDING_APPROVAL.getCode();
+            case REJECTED -> TaskLogEvent.REJECTED.getCode();
+            default -> throw new IllegalArgumentException("Unsupported task status for event mapping: " + to);
         };
     }
 }

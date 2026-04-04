@@ -229,6 +229,7 @@ CREATE TABLE `gpu_task_log` (
   `detail`      TEXT                 NULL DEFAULT NULL,
   `operator_id` BIGINT UNSIGNED      NULL DEFAULT NULL,
   `created_at`  DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `chk_log_event` CHECK (`event` IN ('QUEUED', 'DISPATCHED', 'COMPLETED', 'FAILED', 'CANCELLED', 'PENDING_APPROVAL', 'REJECTED')),
   CONSTRAINT `chk_log_old_status` CHECK (`old_status` IS NULL OR `old_status` IN (1, 2, 3, 4, 5, 6, 7, 8)),
   CONSTRAINT `chk_log_new_status` CHECK (`new_status` IS NULL OR `new_status` IN (1, 2, 3, 4, 5, 6, 7, 8)),
   PRIMARY KEY (`id`),

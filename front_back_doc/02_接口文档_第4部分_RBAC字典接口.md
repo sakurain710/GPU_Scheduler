@@ -59,8 +59,8 @@
 | action | String | 操作类型 | 是 | 例如 `view/create/edit/delete/export` |
 | description | String | 描述 | 是 | - |
 | status | Integer | 状态 | 是 | `1`启用, `0`禁用 |
-| createdAt | LocalDateTime | 创建时间 | 是 | 序列化格式待确认 |
-| updatedAt | LocalDateTime | 更新时间 | 是 | 序列化格式待确认 |
+| createdAt | LocalDateTime | 创建时间 | 是 | `yyyy-MM-dd HH:mm:ss`（Asia/Shanghai） |
+| updatedAt | LocalDateTime | 更新时间 | 是 | `yyyy-MM-dd HH:mm:ss`（Asia/Shanghai） |
 
 ---
 
@@ -169,3 +169,4 @@
 - `src/main/java/com/sakurain/gpuscheduler/entity/Permission.java`
 - `src/main/java/com/sakurain/gpuscheduler/entity/Resource.java`
 - `src/main/java/com/sakurain/gpuscheduler/dto/Result.java`
+
