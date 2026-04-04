@@ -1,7 +1,9 @@
 package com.sakurain.gpuscheduler.service;
 
+import com.sakurain.gpuscheduler.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -24,12 +26,16 @@ public class TokenBlacklistService {
     private static final String KEY_PREFIX = "gpu-scheduler:blacklist:";
     private static final String ACCESS_REVOKE_CUTOFF_PREFIX = "gpu-scheduler:access-revoke-cutoff:user:";
     private static final String BLACKLISTED_VALUE = "1";
+    private static final String BACKEND_UNAVAILABLE_CODE = "AUTH_BLACKLIST_BACKEND_UNAVAILABLE";
 
     private final RedisTemplate<String, String> redisTemplate;
+    private final boolean failOpen;
 
     @Autowired
-    public TokenBlacklistService(RedisTemplate<String, String> redisTemplate) {
+    public TokenBlacklistService(RedisTemplate<String, String> redisTemplate,
+                                 @Value("${security.token-blacklist.fail-open:true}") boolean failOpen) {
         this.redisTemplate = redisTemplate;
+        this.failOpen = failOpen;
     }
 
     /**
@@ -45,7 +51,7 @@ public class TokenBlacklistService {
             redisTemplate.opsForValue().set(key, BLACKLISTED_VALUE, ttlSeconds, TimeUnit.SECONDS);
             log.debug("token blacklisted, ttl={}s", ttlSeconds);
         } catch (RedisConnectionFailureException e) {
-            log.warn("Redis unavailable, cannot blacklist token (fail-open): {}", e.getMessage());
+            handleRedisUnavailable("cannot blacklist token", e);
         }
     }
 
@@ -57,7 +63,7 @@ public class TokenBlacklistService {
             String key = KEY_PREFIX + hashToken(token);
             return Boolean.TRUE.equals(redisTemplate.hasKey(key));
         } catch (RedisConnectionFailureException e) {
-            log.warn("Redis unavailable, skip blacklist check (fail-open): {}", e.getMessage());
+            handleRedisUnavailable("skip blacklist check", e);
             return false;
         }
     }
@@ -76,7 +82,7 @@ public class TokenBlacklistService {
             long cutoffEpochSecond = cutoff.getTime() / 1000;
             redisTemplate.opsForValue().set(key, String.valueOf(cutoffEpochSecond), ttlSeconds, TimeUnit.SECONDS);
         } catch (RedisConnectionFailureException e) {
-            log.warn("Redis unavailable, cannot write access revoke cutoff (fail-open): {}", e.getMessage());
+            handleRedisUnavailable("cannot write access revoke cutoff", e);
         }
     }
 
@@ -96,11 +102,19 @@ public class TokenBlacklistService {
             long issuedAtEpochSecond = issuedAt.getTime() / 1000;
             return issuedAtEpochSecond < cutoffEpochSecond;
         } catch (RedisConnectionFailureException e) {
-            log.warn("Redis unavailable, skip access revoke cutoff check (fail-open): {}", e.getMessage());
+            handleRedisUnavailable("skip access revoke cutoff check", e);
             return false;
         } catch (NumberFormatException e) {
             return false;
         }
+    }
+
+    private void handleRedisUnavailable(String action, RedisConnectionFailureException e) {
+        if (failOpen) {
+            log.warn("Redis unavailable, {} (fail-open): {}", action, e.getMessage());
+            return;
+        }
+        throw new BusinessException(BACKEND_UNAVAILABLE_CODE, "Token blacklist backend unavailable", 503);
     }
 
     /**

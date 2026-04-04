@@ -1,5 +1,6 @@
 package com.sakurain.gpuscheduler.service;
 
+import com.sakurain.gpuscheduler.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,8 +14,10 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -30,8 +33,8 @@ class TokenBlacklistServiceTest {
 
     @BeforeEach
     void setUp() {
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        tokenBlacklistService = new TokenBlacklistService(redisTemplate);
+        lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        tokenBlacklistService = new TokenBlacklistService(redisTemplate, true);
     }
 
     @Test
@@ -67,5 +70,16 @@ class TokenBlacklistServiceTest {
         boolean revoked = tokenBlacklistService.isAccessTokenRevokedByRefresh(6L, new Date(1_700_000_001_900L));
 
         assertFalse(revoked);
+    }
+
+    @Test
+    void isBlacklisted_whenRedisUnavailableAndFailClosed_shouldThrowBusinessException() {
+        TokenBlacklistService failClosedService = new TokenBlacklistService(redisTemplate, false);
+        when(redisTemplate.hasKey(org.mockito.ArgumentMatchers.anyString()))
+                .thenThrow(new org.springframework.data.redis.RedisConnectionFailureException("redis down"));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> failClosedService.isBlacklisted("token"));
+        assertTrue("AUTH_BLACKLIST_BACKEND_UNAVAILABLE".equals(ex.getCode()));
     }
 }

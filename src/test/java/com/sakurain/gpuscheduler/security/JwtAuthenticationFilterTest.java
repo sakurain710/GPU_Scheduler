@@ -3,6 +3,7 @@ package com.sakurain.gpuscheduler.security;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sakurain.gpuscheduler.config.JwtConfig;
+import com.sakurain.gpuscheduler.exception.BusinessException;
 import com.sakurain.gpuscheduler.service.TokenBlacklistService;
 import com.sakurain.gpuscheduler.util.JwtUtil;
 import jakarta.servlet.FilterChain;
@@ -90,5 +91,30 @@ class JwtAuthenticationFilterTest {
         JsonNode body = new ObjectMapper().readTree(response.getContentAsString());
         assertThat(body.get("code").asInt()).isEqualTo(401);
         assertThat(body.get("errorCode").asText()).isEqualTo("AUTH_TOKEN_TYPE_INVALID");
+    }
+
+    @Test
+    void blacklistBackendUnavailable_shouldReturn503() throws Exception {
+        String token = "access-token";
+
+        when(jwtConfig.getHeaderName()).thenReturn("Authorization");
+        when(jwtUtil.extractTokenFromHeader("Bearer " + token)).thenReturn(token);
+        when(jwtUtil.validateToken(token)).thenReturn(true);
+        when(jwtUtil.isAccessToken(token)).thenReturn(true);
+        when(tokenBlacklistService.isBlacklisted(token))
+                .thenThrow(new BusinessException("AUTH_BLACKLIST_BACKEND_UNAVAILABLE",
+                        "Token blacklist backend unavailable", 503));
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/tasks/my");
+        request.addHeader("Authorization", "Bearer " + token);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        jwtAuthenticationFilter.doFilter(request, response, filterChain);
+
+        verify(filterChain, never()).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        assertThat(response.getStatus()).isEqualTo(503);
+
+        JsonNode body = new ObjectMapper().readTree(response.getContentAsString());
+        assertThat(body.get("errorCode").asText()).isEqualTo("AUTH_BLACKLIST_BACKEND_UNAVAILABLE");
     }
 }

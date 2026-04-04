@@ -55,6 +55,10 @@ rate-limit:
     refill-duration: 60
   fail-closed-auth: true
 
+security:
+  token-blacklist:
+    fail-open: true
+
 idempotency:
   ttl: 86400
 

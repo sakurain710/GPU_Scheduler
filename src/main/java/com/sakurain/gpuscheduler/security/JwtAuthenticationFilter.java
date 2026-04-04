@@ -3,6 +3,7 @@ package com.sakurain.gpuscheduler.security;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sakurain.gpuscheduler.config.JwtConfig;
 import com.sakurain.gpuscheduler.dto.Result;
+import com.sakurain.gpuscheduler.exception.BusinessException;
 import com.sakurain.gpuscheduler.service.TokenBlacklistService;
 import com.sakurain.gpuscheduler.util.JwtUtil;
 import jakarta.servlet.FilterChain;
@@ -23,7 +24,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 
 /**
- * JWT认证过滤器
+ * JWT 认证过滤器
  */
 @Slf4j
 @Component
@@ -53,7 +54,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String jwt = getJwtFromRequest(request);
 
             if (StringUtils.hasText(jwt) && jwtUtil.validateToken(jwt)) {
-                // 只允许 access token 进入鉴权流程
+                // 仅允许 access token 进入鉴权流程
                 if (!jwtUtil.isAccessToken(jwt)) {
                     writeUnauthorized(response, "令牌类型错误");
                     return;
@@ -86,8 +87,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     log.warn("用户已被禁用: {}", userId);
                 }
             }
+        } catch (BusinessException ex) {
+            if ("AUTH_BLACKLIST_BACKEND_UNAVAILABLE".equals(ex.getCode())) {
+                writeServiceUnavailable(response, ex.getMessage());
+                return;
+            }
+            log.error("JWT authentication business exception: {}", ex.getMessage());
         } catch (Exception ex) {
-            log.error("JWT认证失败: {}", ex.getMessage());
+            log.error("JWT authentication failed: {}", ex.getMessage());
         }
 
         filterChain.doFilter(request, response);
@@ -103,6 +110,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         response.setContentType("application/json;charset=UTF-8");
         response.getWriter().write(new ObjectMapper().writeValueAsString(
                 Result.error(401, "AUTH_TOKEN_TYPE_INVALID", message)
+        ));
+    }
+
+    private void writeServiceUnavailable(HttpServletResponse response, String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write(new ObjectMapper().writeValueAsString(
+                Result.error(503, "AUTH_BLACKLIST_BACKEND_UNAVAILABLE", message)
         ));
     }
 }
