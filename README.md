@@ -6,7 +6,7 @@
 
 这个项目把“任务提交到执行完成”的流程拆成了几条清晰链路：
 
-1. 用户通过 API 提交任务（`/api/task/submit`）。
+1. 用户通过 API 提交任务（`/api/tasks/submit`）。
 2. 任务进入状态机流转（`PENDING/PENDING_APPROVAL -> QUEUED -> RUNNING -> COMPLETED/FAILED/...`）。
 3. 调度器从 Redis 优先队列取任务，按 Best-Fit 选择合适 GPU。
 4. 执行模拟器异步执行任务，完成监控器回收结果并更新状态。
@@ -135,8 +135,8 @@ java -jar target/gpu-scheduler-0.0.1-SNAPSHOT.jar
 ## 7. 主要 API（按模块）
 
 - 认证：`/api/auth/*`（登录、刷新、登出、当前用户）
-- GPU 管理：`/api/gpu/*`
-- 任务管理：`/api/task/*`（提交、查询、取消、审批）
+- GPU 管理：`/api/gpus/*`
+- 任务管理：`/api/tasks/*`（提交、查询、取消、审批）
 - 运维控制：`/api/ops/*`（调度暂停/恢复、DLQ、强制操作）
 - 监控：`/api/health`、`/api/metrics`
 - RBAC：`/api/users/*`、`/api/roles/*`、`/api/rbac/*`
@@ -177,3 +177,8 @@ mvn "-Dtest=TaskSubmissionToCompletionIT,ConcurrentSchedulingIT,StateMachineRedi
 ## 11. 当前实现边界
 
 当前是“任务执行模拟”架构（`TaskExecutionSimulator`），适合验证调度算法、状态机和管控流程；若接入真实 GPU 集群，可在 `TaskAssignmentService` / 执行器层替换为实际 worker 通讯与执行协议。
+
+## 12. 后续迭代说明
+
+- 通用行级数据权限框架（U-03）当前不纳入交付范围，以控制系统复杂度与维护成本。
+- 后续如需落地，可按“注解 + SQL拦截器 + 角色数据域规则表”的方案分阶段接入。
