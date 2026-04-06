@@ -1,6 +1,7 @@
 package com.sakurain.gpuscheduler.service;
 
 import com.sakurain.gpuscheduler.dto.monitor.TelemetrySnapshot;
+import com.sakurain.gpuscheduler.dto.monitor.PublicTelemetrySnapshot;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -18,6 +19,9 @@ public class TelemetryPushService {
 
     @Value("${telemetry.topic:/topic/telemetry}")
     private String telemetryTopic;
+
+    @Value("${telemetry.public-topic:/topic/public/telemetry}")
+    private String publicTelemetryTopic;
 
     public TelemetryPushService(SimpMessagingTemplate messagingTemplate,
                                 MonitoringService monitoringService) {
@@ -37,8 +41,10 @@ public class TelemetryPushService {
                     .tasks(monitoringService.getTaskMetrics())
                     .gpus(monitoringService.getGpuMetrics())
                     .build();
+            PublicTelemetrySnapshot publicSnapshot = monitoringService.getPublicTelemetrySnapshot();
 
             messagingTemplate.convertAndSend(telemetryTopic, snapshot);
+            messagingTemplate.convertAndSend(publicTelemetryTopic, publicSnapshot);
         } catch (Exception ex) {
             log.warn("Telemetry push failed: {}", ex.getMessage());
         }

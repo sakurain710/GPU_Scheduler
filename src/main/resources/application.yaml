@@ -77,6 +77,7 @@ management:
 
 telemetry:
   topic: /topic/telemetry
+  public-topic: /topic/public/telemetry
   initial-delay-ms: 5000
   push-interval-ms: 3000
 

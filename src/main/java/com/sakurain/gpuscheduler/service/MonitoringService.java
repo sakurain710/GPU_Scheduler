@@ -2,6 +2,9 @@ package com.sakurain.gpuscheduler.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.sakurain.gpuscheduler.dto.monitor.GpuMetrics;
+import com.sakurain.gpuscheduler.dto.monitor.PublicGpuMetrics;
+import com.sakurain.gpuscheduler.dto.monitor.PublicTaskMetrics;
+import com.sakurain.gpuscheduler.dto.monitor.PublicTelemetrySnapshot;
 import com.sakurain.gpuscheduler.dto.monitor.SystemHealth;
 import com.sakurain.gpuscheduler.dto.monitor.TaskMetrics;
 import com.sakurain.gpuscheduler.entity.Gpu;
@@ -181,6 +184,22 @@ public class MonitoringService {
                 .build();
     }
 
+    public PublicTaskMetrics getPublicTaskMetrics() {
+        TaskMetrics taskMetrics = getTaskMetrics();
+        return PublicTaskMetrics.builder()
+                .queueLength(taskMetrics.getQueueLength())
+                .queueLengthByPriority(taskMetrics.getQueueLengthByPriority())
+                .taskCountByStatus(taskMetrics.getTaskCountByStatus())
+                .avgWaitSecondsByPriority(taskMetrics.getAvgWaitSecondsByPriority())
+                .avgDispatchLatencySeconds(taskMetrics.getAvgDispatchLatencySeconds())
+                .avgTurnaroundSeconds(taskMetrics.getAvgTurnaroundSeconds())
+                .dispatchLatencyPercentilesSeconds(taskMetrics.getDispatchLatencyPercentilesSeconds())
+                .queueAgeHistogram(taskMetrics.getQueueAgeHistogram())
+                .completionRate(taskMetrics.getCompletionRate())
+                .failureRate(taskMetrics.getFailureRate())
+                .build();
+    }
+
     // ── GPU Metrics ───────────────────────────────────────────────────────────
 
     /**
@@ -268,6 +287,28 @@ public class MonitoringService {
                 .build();
     }
 
+    public PublicGpuMetrics getPublicGpuMetrics() {
+        List<Gpu> allGpus = gpuMapper.selectList(null);
+        GpuMetrics gpuMetrics = getGpuMetrics();
+
+        Map<String, Long> memoryProfileDistribution = new LinkedHashMap<>();
+        memoryProfileDistribution.put("8GB", 0L);
+        memoryProfileDistribution.put("16GB", 0L);
+        memoryProfileDistribution.put("24GB+", 0L);
+
+        allGpus.forEach(gpu -> {
+            String bucket = memoryProfileBucket(gpu);
+            memoryProfileDistribution.put(bucket, memoryProfileDistribution.get(bucket) + 1L);
+        });
+
+        return PublicGpuMetrics.builder()
+                .total(gpuMetrics.getTotal())
+                .countByStatus(gpuMetrics.getCountByStatus())
+                .utilizationRate(gpuMetrics.getUtilizationRate())
+                .memoryProfileDistribution(memoryProfileDistribution)
+                .build();
+    }
+
     // ── System Health ─────────────────────────────────────────────────────────
 
     /**
@@ -310,6 +351,15 @@ public class MonitoringService {
                 .schedulerStatus("UP")
                 .circuitBreakerState(cbState)
                 .oldestQueuedTaskSeconds(oldestWait)
+                .build();
+    }
+
+    public PublicTelemetrySnapshot getPublicTelemetrySnapshot() {
+        return PublicTelemetrySnapshot.builder()
+                .timestamp(LocalDateTime.now())
+                .health(getSystemHealth())
+                .tasks(getPublicTaskMetrics())
+                .gpus(getPublicGpuMetrics())
                 .build();
     }
 
@@ -384,6 +434,19 @@ public class MonitoringService {
             return "GPU_UNAVAILABLE";
         }
         return "OTHER";
+    }
+
+    private String memoryProfileBucket(Gpu gpu) {
+        if (gpu.getMemoryGb() == null) {
+            return "24GB+";
+        }
+        if (gpu.getMemoryGb().compareTo(new BigDecimal("8")) <= 0) {
+            return "8GB";
+        }
+        if (gpu.getMemoryGb().compareTo(new BigDecimal("16")) <= 0) {
+            return "16GB";
+        }
+        return "24GB+";
     }
 
     private Map<Long, Double> calculateUserSlaCompliance(List<GpuTask> allTasks) {
