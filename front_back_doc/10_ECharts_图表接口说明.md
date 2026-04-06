@@ -9,6 +9,7 @@
 | 用途 | 方法 | 路径 | 权限 | 推荐用途 |
 |---|---|---|---|---|
 | 合并指标 | `GET` | `/api/metrics` | `ROLE_ADMIN` 或 `monitoring:read` | 主数据源（任务+GPU图表） |
+| 全局任务流 | `GET` | `/api/metrics/tasks/stream` | `ROLE_ADMIN` 或 `monitoring:read` | 实时任务表格（支持 `activeOnly=true`） |
 | 系统健康 | `GET` | `/api/health` | `ROLE_ADMIN` 或 `monitoring:read` | 健康状态卡片/告警灯 |
 | 实时快照 | `WS/STOMP` | `/ws` 订阅 `/topic/telemetry` | 登录态 | 实时刷新（3秒推送） |
 
@@ -103,6 +104,30 @@ REST 接口统一返回：
 - `Offline`
 - `Maintenance`
 
+
+### 4.4 全局任务流（表格）
+
+接口：`GET /api/metrics/tasks/stream`
+
+推荐查询参数：
+- `page=1`
+- `size=12`
+- `activeOnly=true`
+- `sortBy=updatedAt`
+- `sortDir=desc`
+
+说明：
+- `status` 与 `activeOnly` 同时存在时，以 `status` 精确过滤为准。
+- 当 `activeOnly=true` 且 `status` 为空时，仅返回 `Queued` 与 `Running` 任务。
+- 适用于大屏右侧任务流转表格，不替代 `/api/metrics` 图表主数据源。
+
+表格建议字段：
+- `id`
+- `minMemoryGb`
+- `basePriority`
+- `statusLabel`
+- `gpuId`
+- `updatedAt/createdAt`
 ## 5. `/api/health` 字段定义与展示建议
 
 | 字段 | 类型 | 单位 | 展示建议 |
@@ -183,3 +208,4 @@ REST 接口统一返回：
 2. 百分比字符串字段完成数值化并用于仪表盘。
 3. `/topic/telemetry` 断开重连后可恢复更新，不重复订阅。
 4. map 空数据场景下页面无报错。
+

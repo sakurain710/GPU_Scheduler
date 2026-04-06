@@ -214,6 +214,31 @@ public class GpuTaskService {
         return taskMapper.selectPage(pageParam, wrapper).convert(this::toResponse);
     }
 
+    /**
+     * 全局任务流查询（监控大屏）
+     */
+    public IPage<TaskResponse> listGlobalTasks(Integer page,
+                                               Integer size,
+                                               Integer status,
+                                               Boolean activeOnly,
+                                               String sortBy,
+                                               String sortDir) {
+        Page<GpuTask> pageParam = new Page<>(
+                PaginationUtils.normalizePage(page),
+                PaginationUtils.normalizeSize(size, 20, 200)
+        );
+        LambdaQueryWrapper<GpuTask> wrapper = new LambdaQueryWrapper<>();
+        if (status != null) {
+            wrapper.eq(GpuTask::getStatus, status);
+        } else if (Boolean.TRUE.equals(activeOnly)) {
+            wrapper.in(GpuTask::getStatus,
+                    TaskStatus.QUEUED.getCode(),
+                    TaskStatus.RUNNING.getCode());
+        }
+        applyTaskSort(wrapper, sortBy, sortDir, true);
+        return taskMapper.selectPage(pageParam, wrapper).convert(this::toResponse);
+    }
+
     private void applyTaskSort(LambdaQueryWrapper<GpuTask> wrapper,
                                String sortBy,
                                String sortDir,
@@ -225,6 +250,7 @@ public class GpuTaskService {
             case "enqueueAt" -> wrapper.orderBy(true, asc, GpuTask::getEnqueueAt);
             case "status" -> wrapper.orderBy(true, asc, GpuTask::getStatus);
             case "id" -> wrapper.orderBy(true, asc, GpuTask::getId);
+            case "updatedAt" -> wrapper.orderBy(true, asc, GpuTask::getUpdatedAt);
             default -> wrapper.orderBy(true, asc, GpuTask::getCreatedAt);
         }
     }
