@@ -31,6 +31,7 @@ public class TaskNotificationService {
     private final SimpMessagingTemplate messagingTemplate;
     private final RedisTemplate<String, String> redisTemplate;
     private final ObjectMapper objectMapper;
+    private final TaskDashboardPushService taskDashboardPushService;
 
     @Value("${notification.task-topic-prefix:/topic/task-status/}")
     private String taskTopicPrefix;
@@ -55,10 +56,12 @@ public class TaskNotificationService {
 
     public TaskNotificationService(SimpMessagingTemplate messagingTemplate,
                                    RedisTemplate<String, String> redisTemplate,
-                                   ObjectMapper objectMapper) {
+                                   ObjectMapper objectMapper,
+                                   TaskDashboardPushService taskDashboardPushService) {
         this.messagingTemplate = messagingTemplate;
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
+        this.taskDashboardPushService = taskDashboardPushService;
     }
 
     public void notifyTaskStatus(Long taskId,
@@ -79,6 +82,7 @@ public class TaskNotificationService {
                 .build();
 
         pushWebSocket(payload);
+        taskDashboardPushService.pushToUser(userId);
         pushWebhook(payload, 1);
     }
 

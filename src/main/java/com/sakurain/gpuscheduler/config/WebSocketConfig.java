@@ -10,21 +10,27 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    // 消息代理配置
+    private static final String[] BROKER_DESTINATIONS = {"/topic", "/queue"};
+    private static final String[] APPLICATION_DESTINATIONS = {"/app"};
+    private static final String[] ALL_ORIGINS = {"*"};
+
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker("/topic", "/queue"); // 配置消息代理，支持 /topic 和 /queue 前缀
-        registry.setApplicationDestinationPrefixes("/app");
+        registry.enableSimpleBroker(BROKER_DESTINATIONS);
+        registry.setApplicationDestinationPrefixes(APPLICATION_DESTINATIONS);
     }
 
-    // 注册连接端点
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*")
+                .setAllowedOriginPatterns(ALL_ORIGINS);
+
+        registry.addEndpoint("/ws")
+                .setAllowedOriginPatterns(ALL_ORIGINS)
                 .withSockJS();
+
         registry.addEndpoint("/ws/public")
-                .setAllowedOriginPatterns("*")
+                .setAllowedOriginPatterns(ALL_ORIGINS)
                 .withSockJS();
     }
 }

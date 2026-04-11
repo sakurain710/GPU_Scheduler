@@ -223,6 +223,34 @@ class MonitoringServiceTest {
         assertThat(metrics.getUtilizationRate()).isEqualTo("0.0%");
     }
 
+    @Test
+    void memoryCapacityMethods_shouldUseTotalAndFreeMemory() {
+        when(gpuMapper.selectList(null)).thenReturn(List.of(idleGpu, busyGpu));
+        when(gpuTaskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(runningTask));
+        when(gpuTaskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
+
+        assertThat(monitoringService.getTotalMemoryGb()).isEqualByComparingTo("120");
+        assertThat(monitoringService.getSystemFreeMemoryGb()).isEqualByComparingTo("100");
+        assertThat(monitoringService.getMemoryUtilizationRateByCapacity()).isEqualByComparingTo("16.67");
+    }
+
+    @Test
+    void getSystemAvgQueuedWaitSecondsAndNextReleaseAt_shouldUseQueuedAndRunningTasks() {
+        GpuTask queued = GpuTask.builder()
+                .id(31L).status(TaskStatus.QUEUED.getCode())
+                .enqueueAt(LocalDateTime.now().minusSeconds(30))
+                .build();
+        GpuTask running = GpuTask.builder()
+                .id(32L).status(TaskStatus.RUNNING.getCode())
+                .estimatedFinishAt(LocalDateTime.now().plusSeconds(45))
+                .build();
+        when(gpuTaskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(queued));
+        when(gpuTaskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(running);
+
+        assertThat(monitoringService.getSystemAvgQueuedWaitSeconds()).isEqualByComparingTo("30.00");
+        assertThat(monitoringService.getNextReleaseAt()).isEqualTo(running.getEstimatedFinishAt());
+    }
+
     // ── getSystemHealth ───────────────────────────────────────────────────────
 
     @Test

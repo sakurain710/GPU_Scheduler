@@ -105,4 +105,17 @@ class TaskPriorityQueueTest {
         assertEquals(0, queue.size());
         assertTrue(queue.allMembers().isEmpty());
     }
+
+    @Test
+    void topMembersAndRank_followQueueOrder() {
+        queue.enqueue(101L, 9.0);
+        queue.enqueue(102L, 7.0);
+        queue.enqueue(103L, 5.0);
+
+        assertEquals(java.util.List.of(101L, 102L), queue.topMembers(2));
+        assertEquals(0L, queue.rank(101L));
+        assertEquals(1L, queue.rank(102L));
+        assertEquals(2L, queue.rank(103L));
+        assertNull(queue.rank(999L));
+    }
 }

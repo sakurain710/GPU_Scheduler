@@ -5,9 +5,11 @@ import com.sakurain.gpuscheduler.dto.Result;
 import com.sakurain.gpuscheduler.dto.task.BatchApproveRequest;
 import com.sakurain.gpuscheduler.dto.task.RejectTaskRequest;
 import com.sakurain.gpuscheduler.dto.task.SubmitTaskRequest;
+import com.sakurain.gpuscheduler.dto.task.TaskDashboardResponse;
 import com.sakurain.gpuscheduler.dto.task.TaskResponse;
 import com.sakurain.gpuscheduler.security.CustomUserDetails;
 import com.sakurain.gpuscheduler.service.GpuTaskService;
+import com.sakurain.gpuscheduler.service.TaskDashboardService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -43,10 +45,13 @@ import java.util.List;
 public class GpuTaskController {
 
     private final GpuTaskService gpuTaskService;
+    private final TaskDashboardService taskDashboardService;
 
     @Autowired
-    public GpuTaskController(GpuTaskService gpuTaskService) {
+    public GpuTaskController(GpuTaskService gpuTaskService,
+                             TaskDashboardService taskDashboardService) {
         this.gpuTaskService = gpuTaskService;
+        this.taskDashboardService = taskDashboardService;
     }
 
     @Operation(summary = "提交GPU任务")
@@ -81,6 +86,18 @@ public class GpuTaskController {
             @RequestParam(required = false, defaultValue = "desc") String sortDir) {
         Long userId = getCurrentUserId();
         return Result.success(gpuTaskService.listUserTasks(userId, page, size, status, sortBy, sortDir));
+    }
+
+    @Operation(summary = "获取当前用户任务工作台")
+    @GetMapping("/dashboard")
+    public Result<TaskDashboardResponse> getDashboard(
+            @RequestParam(defaultValue = "1") @Min(1) Integer page,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(200) Integer size,
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false, defaultValue = "updatedAt") String sortBy,
+            @RequestParam(required = false, defaultValue = "desc") String sortDir) {
+        Long userId = getCurrentUserId();
+        return Result.success(taskDashboardService.getDashboard(userId, page, size, status, sortBy, sortDir));
     }
 
     @Operation(summary = "取消任务")

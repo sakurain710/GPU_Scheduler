@@ -11,7 +11,7 @@
 | 合并指标 | `GET` | `/api/metrics` | `ROLE_ADMIN` 或 `monitoring:read` | 主数据源（任务+GPU图表） |
 | 全局任务流 | `GET` | `/api/metrics/tasks/stream` | `ROLE_ADMIN` 或 `monitoring:read` | 实时任务表格（支持 `activeOnly=true`） |
 | 系统健康 | `GET` | `/api/health` | `ROLE_ADMIN` 或 `monitoring:read` | 健康状态卡片/告警灯 |
-| 实时快照 | `WS/STOMP` | `/ws` 订阅 `/topic/telemetry` | 登录态 | 实时刷新（3秒推送） |
+| 实时快照 | `WS/STOMP` | 原生 `ws://localhost:8080/ws` 或 SockJS 基址 `http://localhost:8080/ws`，订阅 `/topic/telemetry` | 登录态 | 实时刷新（3秒推送） |
 
 说明：
 - `/topic/telemetry` 的推送周期由 `telemetry.push-interval-ms` 控制，默认 `3000ms`。

@@ -309,6 +309,52 @@ public class MonitoringService {
                 .build();
     }
 
+    public BigDecimal getTotalMemoryGb() {
+        return gpuMapper.selectList(null).stream()
+                .map(Gpu::getMemoryGb)
+                .filter(memory -> memory != null)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    public BigDecimal getSystemFreeMemoryGb() {
+        return getGpuMetrics().getRemainingMemoryGbByGpu().values().stream()
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    public BigDecimal getMemoryUtilizationRateByCapacity() {
+        BigDecimal totalMemory = getTotalMemoryGb();
+        if (totalMemory.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        BigDecimal freeMemory = getSystemFreeMemoryGb();
+        BigDecimal usedMemory = totalMemory.subtract(freeMemory).max(BigDecimal.ZERO);
+        return usedMemory.multiply(new BigDecimal("100"))
+                .divide(totalMemory, 2, RoundingMode.HALF_UP);
+    }
+
+    public BigDecimal getSystemAvgQueuedWaitSeconds() {
+        List<GpuTask> queuedTasks = gpuTaskMapper.selectList(new LambdaQueryWrapper<GpuTask>()
+                .eq(GpuTask::getStatus, TaskStatus.QUEUED.getCode())
+                .isNotNull(GpuTask::getEnqueueAt));
+        if (queuedTasks.isEmpty()) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        double avg = queuedTasks.stream()
+                .mapToLong(task -> Duration.between(task.getEnqueueAt(), LocalDateTime.now()).toSeconds())
+                .average()
+                .orElse(0.0);
+        return BigDecimal.valueOf(avg).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    public LocalDateTime getNextReleaseAt() {
+        GpuTask nextTask = gpuTaskMapper.selectOne(new LambdaQueryWrapper<GpuTask>()
+                .eq(GpuTask::getStatus, TaskStatus.RUNNING.getCode())
+                .isNotNull(GpuTask::getEstimatedFinishAt)
+                .orderByAsc(GpuTask::getEstimatedFinishAt)
+                .last("LIMIT 1"));
+        return nextTask != null ? nextTask.getEstimatedFinishAt() : null;
+    }
+
     // ── System Health ─────────────────────────────────────────────────────────
 
     /**

@@ -6,8 +6,10 @@ import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 基于Redis ZSet的任务优先队列
@@ -104,6 +106,24 @@ public class TaskPriorityQueue {
     public Set<String> allMembers() {
         Set<String> members = zSetOps.range(QUEUE_KEY, 0, -1);
         return members != null ? members : Collections.emptySet();
+    }
+
+    public List<Long> topMembers(int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        Set<String> members = zSetOps.range(QUEUE_KEY, 0, limit - 1L);
+        if (members == null || members.isEmpty()) {
+            return List.of();
+        }
+        return members.stream()
+                .map(Long::valueOf)
+                .collect(Collectors.toList());
+    }
+
+    public Long rank(Long taskId) {
+        Long rank = zSetOps.rank(QUEUE_KEY, taskId.toString());
+        return rank;
     }
 
     private long resolveSequence(String member) {

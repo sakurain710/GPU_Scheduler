@@ -26,7 +26,7 @@
 - 认证与权限：JWT 无状态认证 + RBAC（用户/角色/权限/资源模型）。
 - 安全防护：Bucket4j + Redis 限流、幂等过滤器、Token 黑名单。
 - 可观测性：`/api/health`、`/api/metrics`、Actuator、Prometheus。
-- 实时推送：STOMP WebSocket（`/ws`）推送遥测与任务状态。
+- 实时推送：STOMP WebSocket 通过 `/ws` 推送遥测与任务状态，支持原生 WebSocket 与 SockJS。
 
 ## 3. 技术栈
 
@@ -130,7 +130,8 @@ java -jar target/gpu-scheduler-0.0.1-SNAPSHOT.jar
 - OpenAPI: `http://localhost:8080/v3/api-docs`
 - Health: `http://localhost:8080/actuator/health`
 - Prometheus: `http://localhost:8080/actuator/prometheus`
-- WebSocket STOMP endpoint: `ws://localhost:8080/ws`
+- Native WebSocket STOMP endpoint: `ws://localhost:8080/ws`
+- SockJS STOMP base URL: `http://localhost:8080/ws`
 
 ## 7. 主要 API（按模块）
 

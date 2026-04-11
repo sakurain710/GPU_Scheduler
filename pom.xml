@@ -121,6 +121,12 @@
             <version>3.5.12</version>
             <scope>compile</scope>
         </dependency>
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-jsqlparser</artifactId>
+            <version>3.5.12</version>
+            <scope>compile</scope>
+        </dependency>
 
         <!--Lombok-->
         <dependency>
