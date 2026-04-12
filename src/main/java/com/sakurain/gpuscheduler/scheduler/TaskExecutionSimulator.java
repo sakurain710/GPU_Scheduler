@@ -24,14 +24,19 @@ import java.util.concurrent.*;
 @Service
 public class TaskExecutionSimulator {
 
-    private final ExecutorService executorService;
+    private final ThreadPoolExecutor executorService;
     private final CircuitBreakerService circuitBreaker;
     private final Map<Long, Future<TaskExecutionResult>> runningTasks;
 
     public TaskExecutionSimulator(CircuitBreakerService circuitBreaker) {
         this.circuitBreaker = circuitBreaker;
-        this.executorService = Executors.newFixedThreadPool(
-                Runtime.getRuntime().availableProcessors() * 2,
+        int poolSize = Math.max(2, Runtime.getRuntime().availableProcessors() * 2);
+        this.executorService = new ThreadPoolExecutor(
+                poolSize,
+                poolSize,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<>(),
                 new ThreadFactory() {
                     private int counter = 0;
                     @Override
@@ -43,9 +48,10 @@ public class TaskExecutionSimulator {
                     }
                 }
         );
+        this.executorService.prestartAllCoreThreads();
         this.runningTasks = new ConcurrentHashMap<>();
         log.info("TaskExecutionSimulator initialized with {} threads",
-                Runtime.getRuntime().availableProcessors() * 2);
+                poolSize);
     }
 
     /**
@@ -163,6 +169,18 @@ public class TaskExecutionSimulator {
      */
     public int getRunningTaskCount() {
         return runningTasks.size();
+    }
+
+    public int getActiveThreadCount() {
+        return executorService.getActiveCount();
+    }
+
+    public int getCoreThreadCount() {
+        return executorService.getCorePoolSize();
+    }
+
+    public int getQueuedTaskCount() {
+        return executorService.getQueue().size();
     }
 
     /**
