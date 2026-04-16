@@ -172,6 +172,30 @@ class TaskCompletionMonitorTest {
     }
 
     @Test
+    void testMonitor_ZeroActualSeconds_NormalizedToPositiveValue() {
+        GpuTask tinyTask = GpuTask.builder()
+                .id(100L)
+                .gpuId(1L)
+                .status(TaskStatus.RUNNING.getCode())
+                .estimatedSeconds(null)
+                .dispatchedAt(LocalDateTime.now().minusSeconds(1))
+                .build();
+        when(taskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(tinyTask));
+        when(simulator.isRunning(100L)).thenReturn(false);
+        when(simulator.getResult(eq(100L), eq(1L))).thenReturn(
+                TaskExecutionSimulator.TaskExecutionResult.success(100L, BigDecimal.ZERO)
+        );
+        when(gpuMapper.tryMarkIdle(1L, GpuStatus.BUSY.getCode(), GpuStatus.IDLE.getCode())).thenReturn(1);
+
+        monitor.monitorRunningTasks();
+
+        ArgumentCaptor<GpuTask> captor = ArgumentCaptor.forClass(GpuTask.class);
+        verify(taskMapper).updateById(captor.capture());
+        assertThat(captor.getValue().getActualSeconds()).isEqualByComparingTo("0.0001");
+        verify(taskService).transition(100L, TaskStatus.COMPLETED, 1L, null);
+    }
+
+    @Test
     void testMonitor_OrphanRunningTaskRecoveredAfterThreshold() {
         GpuTask orphanTask = GpuTask.builder()
                 .id(300L)

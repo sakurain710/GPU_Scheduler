@@ -24,6 +24,8 @@ import java.util.concurrent.*;
 @Service
 public class TaskExecutionSimulator {
 
+    private static final long MIN_EXECUTION_MILLIS = 1L;
+
     private final ThreadPoolExecutor executorService;
     private final CircuitBreakerService circuitBreaker;
     private final Map<Long, Future<TaskExecutionResult>> runningTasks;
@@ -82,12 +84,12 @@ public class TaskExecutionSimulator {
 
         try {
             // 模拟GPU计算：实际执行时间 = 预估时间 ± 20%随机波动
-            long estimatedMs = task.getEstimatedSeconds().multiply(new BigDecimal("1000")).longValue();
-            long actualMs = (long) (estimatedMs * (0.8 + Math.random() * 0.4));
+            long estimatedMs = toMillisCeil(task.getEstimatedSeconds());
+            long actualMs = Math.max(MIN_EXECUTION_MILLIS, Math.round(estimatedMs * (0.8 + Math.random() * 0.4)));
 
             Thread.sleep(actualMs);
 
-            long elapsed = System.currentTimeMillis() - startTime;
+            long elapsed = Math.max(MIN_EXECUTION_MILLIS, System.currentTimeMillis() - startTime);
             BigDecimal actualSeconds = new BigDecimal(elapsed).divide(new BigDecimal("1000"), 4, RoundingMode.HALF_UP);
 
             circuitBreaker.recordSuccess();
@@ -109,6 +111,17 @@ public class TaskExecutionSimulator {
         }
         // Note: runningTasks entry is NOT removed here.
         // TaskCompletionMonitor retrieves the result and removes it via cancelTask or getResult.
+    }
+
+    private long toMillisCeil(BigDecimal seconds) {
+        if (seconds == null || seconds.compareTo(BigDecimal.ZERO) <= 0) {
+            return MIN_EXECUTION_MILLIS;
+        }
+        long millis = seconds
+                .multiply(new BigDecimal("1000"))
+                .setScale(0, RoundingMode.CEILING)
+                .longValue();
+        return Math.max(MIN_EXECUTION_MILLIS, millis);
     }
 
     /**

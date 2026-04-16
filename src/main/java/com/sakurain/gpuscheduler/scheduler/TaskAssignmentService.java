@@ -24,6 +24,8 @@ import java.time.LocalDateTime;
 @Service
 public class TaskAssignmentService {
 
+    private static final long MIN_DELAY_NANOS = 1_000_000L;
+
     private final GpuMapper gpuMapper;
     private final GpuTaskService taskService;
     private final TaskExecutionSimulator simulator;
@@ -59,7 +61,7 @@ public class TaskAssignmentService {
         task.setEstimatedSeconds(estimatedSeconds);
 
         LocalDateTime now = LocalDateTime.now();
-        task.setEstimatedFinishAt(now.plusSeconds(estimatedSeconds.longValue()));
+        task.setEstimatedFinishAt(now.plusNanos(toDelayNanos(estimatedSeconds)));
 
         // 3. QUEUED -> RUNNING
         taskService.transition(task.getId(), TaskStatus.RUNNING, gpu.getId(), null);
@@ -94,5 +96,16 @@ public class TaskAssignmentService {
         }
         BigDecimal computingPowerGflops = computingPowerTflops.multiply(new BigDecimal("1000"));
         return computeUnitsGflop.divide(computingPowerGflops, 4, RoundingMode.HALF_UP);
+    }
+
+    private long toDelayNanos(BigDecimal seconds) {
+        if (seconds == null || seconds.compareTo(BigDecimal.ZERO) <= 0) {
+            return MIN_DELAY_NANOS;
+        }
+        long nanos = seconds
+                .multiply(new BigDecimal("1000000000"))
+                .setScale(0, RoundingMode.CEILING)
+                .longValue();
+        return Math.max(MIN_DELAY_NANOS, nanos);
     }
 }

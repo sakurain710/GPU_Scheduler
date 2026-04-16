@@ -46,6 +46,18 @@ class TaskExecutionSimulatorTest {
     }
 
     @Test
+    void testSubmitTask_TinyEstimatedSeconds_ActualSecondsStillPositive() throws Exception {
+        when(circuitBreaker.allowRequest()).thenReturn(true);
+
+        GpuTask task = buildTask(12L, new BigDecimal("0.0006"));
+        Future<TaskExecutionSimulator.TaskExecutionResult> future = simulator.submitTask(task);
+
+        TaskExecutionSimulator.TaskExecutionResult result = future.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getActualSeconds()).isGreaterThan(BigDecimal.ZERO);
+    }
+
+    @Test
     void testSubmitTask_CircuitBreakerOpen_ThrowsException() {
         when(circuitBreaker.allowRequest()).thenReturn(false);
 

@@ -26,6 +26,8 @@ import java.util.List;
 public class TaskCompletionMonitor {
 
     private static final double TIMEOUT_MULTIPLIER = 2.0;
+    private static final long MIN_TIMEOUT_MILLIS = 1L;
+    private static final BigDecimal MIN_ACTUAL_SECONDS = new BigDecimal("0.0001");
 
     private final GpuTaskMapper taskMapper;
     private final GpuMapper gpuMapper;
@@ -93,7 +95,7 @@ public class TaskCompletionMonitor {
             return false;
         }
         long estimatedMs = task.getEstimatedSeconds().multiply(new BigDecimal("1000")).longValue();
-        long timeoutMs = (long) (estimatedMs * TIMEOUT_MULTIPLIER);
+        long timeoutMs = Math.max(MIN_TIMEOUT_MILLIS, (long) (estimatedMs * TIMEOUT_MULTIPLIER));
         long elapsedMs = Duration.between(task.getDispatchedAt(), LocalDateTime.now()).toMillis();
         return elapsedMs > timeoutMs;
     }
@@ -111,7 +113,7 @@ public class TaskCompletionMonitor {
 
         GpuTask update = new GpuTask();
         update.setId(task.getId());
-        update.setActualSeconds(actualSeconds);
+        update.setActualSeconds(normalizeActualSeconds(success, actualSeconds, task.getEstimatedSeconds()));
         if (!success && errorMessage != null) {
             update.setErrorMessage(errorMessage);
         }
@@ -126,6 +128,19 @@ public class TaskCompletionMonitor {
         if (!success) {
             retryDlqService.onTaskFailed(task.getId(), errorMessage);
         }
+    }
+
+    private BigDecimal normalizeActualSeconds(boolean success, BigDecimal actualSeconds, BigDecimal estimatedSeconds) {
+        if (!success) {
+            return null;
+        }
+        if (actualSeconds != null && actualSeconds.compareTo(BigDecimal.ZERO) > 0) {
+            return actualSeconds;
+        }
+        if (estimatedSeconds != null && estimatedSeconds.compareTo(BigDecimal.ZERO) > 0) {
+            return estimatedSeconds.max(MIN_ACTUAL_SECONDS);
+        }
+        return MIN_ACTUAL_SECONDS;
     }
 
     private void releaseGpu(Long gpuId) {
