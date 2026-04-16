@@ -1,6 +1,10 @@
 package com.sakurain.gpuscheduler.controller;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.sakurain.gpuscheduler.dto.task.TaskAdminListItem;
 import com.sakurain.gpuscheduler.dto.task.TaskDashboardResponse;
+import com.sakurain.gpuscheduler.dto.task.TaskExecutionLogResponse;
 import com.sakurain.gpuscheduler.entity.Role;
 import com.sakurain.gpuscheduler.entity.User;
 import com.sakurain.gpuscheduler.security.CustomUserDetails;
@@ -42,6 +46,33 @@ class GpuTaskDashboardControllerTest {
 
         assertThat(result.getData()).isSameAs(response);
         verify(taskDashboardService).getDashboard(99L, 1, 10, null, "updatedAt", "desc");
+    }
+
+    @Test
+    void getTaskLogs_shouldUseCurrentUserAndReturnPayload() {
+        GpuTaskController controller = new GpuTaskController(gpuTaskService, taskDashboardService);
+        TaskExecutionLogResponse response = TaskExecutionLogResponse.builder().build();
+        when(gpuTaskService.getTaskExecutionLogs(88L, 99L, List.of("ROLE_USER"))).thenReturn(response);
+        mockCurrentUser(99L);
+
+        var result = controller.getTaskLogs(88L);
+
+        assertThat(result.getCode()).isEqualTo(200);
+        assertThat(result.getData()).isSameAs(response);
+        verify(gpuTaskService).getTaskExecutionLogs(88L, 99L, List.of("ROLE_USER"));
+    }
+
+    @Test
+    void listAdminTasks_shouldReturnPagedPayload() {
+        GpuTaskController controller = new GpuTaskController(gpuTaskService, taskDashboardService);
+        IPage<TaskAdminListItem> page = new Page<>(1, 10);
+        when(gpuTaskService.listAdminTasks(1, 10, "inference", 3, "asc")).thenReturn(page);
+
+        var result = controller.listAdminTasks(1, 10, "inference", 3, "asc");
+
+        assertThat(result.getCode()).isEqualTo(200);
+        assertThat(result.getData()).isSameAs(page);
+        verify(gpuTaskService).listAdminTasks(1, 10, "inference", 3, "asc");
     }
 
     private void mockCurrentUser(Long userId) {

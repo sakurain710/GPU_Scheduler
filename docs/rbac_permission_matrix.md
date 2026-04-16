@@ -19,6 +19,7 @@
 | `GpuController` | `GET /api/gpus/{gpuId}` | 无强制角色 | 无强制权限 | 仅登录态可访问 |
 | `GpuTaskController` | `POST /api/tasks/submit` | 无强制角色 | 无强制权限 | 高优任务是否审批由业务规则决定 |
 | `GpuTaskController` | `GET /api/tasks/{taskId}` | 任务所有者或审批角色 | 任务所有者或审批权限 | 服务层对象级校验 |
+| `GpuTaskController` | `GET /api/tasks/{taskId}/logs` | 任务所有者或审批角色 | 任务所有者或审批权限 | 服务层对象级校验 |
 | `GpuTaskController` | `GET /api/tasks/my` | 无强制角色 | 无强制权限 | 仅返回当前用户任务 |
 | `GpuTaskController` | `POST /api/tasks/{taskId}/cancel` | 任务所有者或审批角色 | 任务所有者或审批权限 | 服务层对象级校验 |
 | `RbacDictionaryController` | `GET /api/rbac/me/menu-tree` | 无强制角色 | 无强制权限 | 仅登录态，返回当前用户可见菜单 |
@@ -38,6 +39,7 @@
 | `GpuTaskController` | `POST /api/tasks/{taskId}/reject` | `ROLE_ADMIN`,`ROLE_TASK_REVIEWER` | `task:approval:review` | 同上 |
 | `GpuTaskController` | `POST /api/tasks/approval/batch/approve` | `ROLE_ADMIN`,`ROLE_TASK_REVIEWER` | `task:approval:review` | 同上 |
 | `GpuTaskController` | `POST /api/tasks/approval/batch/reject` | `ROLE_ADMIN`,`ROLE_TASK_REVIEWER` | `task:approval:review` | 同上 |
+| `GpuTaskController` | `GET /api/tasks/admin/list` | `ROLE_ADMIN` | 无 | `hasAuthority('ROLE_ADMIN')` |
 | `UserController` | `/api/users/**` | `ROLE_ADMIN` | `user:manage` | 类级 `@PreAuthorize` |
 | `RoleController` | `/api/roles/**` | `ROLE_ADMIN` | `role:manage` | 类级 `@PreAuthorize` |
 | `RbacDictionaryController` | `GET /api/rbac/resources` | `ROLE_ADMIN` | `rbac:read` | `hasAnyAuthority('ROLE_ADMIN','rbac:read')` |

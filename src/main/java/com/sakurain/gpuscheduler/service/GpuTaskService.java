@@ -5,9 +5,15 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.sakurain.gpuscheduler.config.TaskSubmissionPolicyConfig;
 import com.sakurain.gpuscheduler.dto.task.SubmitTaskRequest;
+import com.sakurain.gpuscheduler.dto.task.TaskAdminListItem;
+import com.sakurain.gpuscheduler.dto.task.TaskExecutionLogItem;
+import com.sakurain.gpuscheduler.dto.task.TaskExecutionLogResponse;
+import com.sakurain.gpuscheduler.dto.task.TaskExecutionLogTaskSummary;
 import com.sakurain.gpuscheduler.dto.task.TaskResponse;
+import com.sakurain.gpuscheduler.entity.Gpu;
 import com.sakurain.gpuscheduler.entity.GpuTask;
 import com.sakurain.gpuscheduler.entity.GpuTaskLog;
+import com.sakurain.gpuscheduler.entity.User;
 import com.sakurain.gpuscheduler.enums.GpuStatus;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.exception.BusinessException;
@@ -15,6 +21,7 @@ import com.sakurain.gpuscheduler.exception.ResourceNotFoundException;
 import com.sakurain.gpuscheduler.mapper.GpuMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskLogMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
+import com.sakurain.gpuscheduler.mapper.UserMapper;
 import com.sakurain.gpuscheduler.scheduler.TaskAgingScheduler;
 import com.sakurain.gpuscheduler.scheduler.TaskExecutionSimulator;
 import com.sakurain.gpuscheduler.scheduler.TaskPriorityQueue;
@@ -25,8 +32,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * GPU任务服务
@@ -38,6 +49,7 @@ public class GpuTaskService {
     private final GpuTaskMapper taskMapper;
     private final GpuMapper gpuMapper;
     private final GpuTaskLogMapper taskLogMapper;
+    private final UserMapper userMapper;
     private final TaskStateMachine stateMachine;
     private final TaskPriorityQueue priorityQueue;
     private final TaskAgingScheduler agingScheduler;
@@ -48,6 +60,7 @@ public class GpuTaskService {
     public GpuTaskService(GpuTaskMapper taskMapper,
                           GpuMapper gpuMapper,
                           GpuTaskLogMapper taskLogMapper,
+                          UserMapper userMapper,
                           TaskStateMachine stateMachine,
                           TaskPriorityQueue priorityQueue,
                           TaskAgingScheduler agingScheduler,
@@ -57,6 +70,7 @@ public class GpuTaskService {
         this.taskMapper = taskMapper;
         this.gpuMapper = gpuMapper;
         this.taskLogMapper = taskLogMapper;
+        this.userMapper = userMapper;
         this.stateMachine = stateMachine;
         this.priorityQueue = priorityQueue;
         this.agingScheduler = agingScheduler;
@@ -166,6 +180,47 @@ public class GpuTaskService {
         return toResponse(task);
     }
 
+    public TaskExecutionLogResponse getTaskExecutionLogs(Long taskId, Long requesterId, List<String> roleCodes) {
+        TaskResponse task = getTask(taskId, requesterId, roleCodes);
+
+        List<GpuTaskLog> logs = taskLogMapper.selectList(new LambdaQueryWrapper<GpuTaskLog>()
+                .eq(GpuTaskLog::getTaskId, taskId)
+                .orderByAsc(GpuTaskLog::getCreatedAt, GpuTaskLog::getId));
+
+        List<GpuTaskLog> sortedLogs = logs.stream()
+                .sorted(Comparator
+                        .comparing(GpuTaskLog::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(GpuTaskLog::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+
+        Set<Long> userIds = new LinkedHashSet<>();
+        if (task.getUserId() != null) {
+            userIds.add(task.getUserId());
+        }
+        sortedLogs.stream()
+                .map(GpuTaskLog::getOperatorId)
+                .filter(id -> id != null && id > 0)
+                .forEach(userIds::add);
+        Map<Long, String> userDisplayNameMap = loadUserDisplayNameMap(userIds);
+
+        TaskExecutionLogTaskSummary taskSummary = TaskExecutionLogTaskSummary.builder()
+                .id(task.getId())
+                .gpuId(task.getGpuId())
+                .gpuLabel(resolveGpuLabel(task.getGpuId()))
+                .operatorId(task.getUserId())
+                .operatorName(userDisplayNameMap.get(task.getUserId()))
+                .build();
+
+        List<TaskExecutionLogItem> items = sortedLogs.stream()
+                .map(log -> toTaskExecutionLogItem(log, userDisplayNameMap))
+                .toList();
+
+        return TaskExecutionLogResponse.builder()
+                .task(taskSummary)
+                .logs(items)
+                .build();
+    }
+
     @Transactional
     public void cancelTask(Long taskId, Long requesterId, List<String> roleCodes) {
         GpuTask task = taskMapper.selectById(taskId);
@@ -195,6 +250,27 @@ public class GpuTaskService {
         applyTaskSort(wrapper, sortBy, sortDir, true);
 
         return taskMapper.selectPage(pageParam, wrapper).convert(this::toResponse);
+    }
+
+    public IPage<TaskAdminListItem> listAdminTasks(Integer page,
+                                                   Integer size,
+                                                   String taskType,
+                                                   Integer status,
+                                                   String sortDir) {
+        Page<GpuTask> pageParam = new Page<>(
+                PaginationUtils.normalizePage(page),
+                PaginationUtils.normalizeSize(size, 10, 200)
+        );
+        LambdaQueryWrapper<GpuTask> wrapper = new LambdaQueryWrapper<>();
+        if (taskType != null && !taskType.isBlank()) {
+            wrapper.eq(GpuTask::getTaskType, taskType);
+        }
+        if (status != null) {
+            wrapper.eq(GpuTask::getStatus, status);
+        }
+        boolean asc = sortDir != null && "asc".equalsIgnoreCase(sortDir);
+        wrapper.orderBy(true, asc, GpuTask::getId);
+        return taskMapper.selectPage(pageParam, wrapper).convert(this::toAdminListItem);
     }
 
     /**
@@ -433,6 +509,74 @@ public class GpuTaskService {
                 .operatorId(operatorId)
                 .build();
         taskLogMapper.insert(logEntry);
+    }
+
+    private TaskExecutionLogItem toTaskExecutionLogItem(GpuTaskLog log, Map<Long, String> userDisplayNameMap) {
+        return TaskExecutionLogItem.builder()
+                .event(log.getEvent())
+                .oldStatus(log.getOldStatus())
+                .oldStatusLabel(resolveStatusLabel(log.getOldStatus()))
+                .newStatus(log.getNewStatus())
+                .newStatusLabel(resolveStatusLabel(log.getNewStatus()))
+                .gpuId(log.getGpuId())
+                .operatorId(log.getOperatorId())
+                .operatorName(userDisplayNameMap.get(log.getOperatorId()))
+                .detail(log.getDetail())
+                .createdAt(log.getCreatedAt())
+                .build();
+    }
+
+    private Map<Long, String> loadUserDisplayNameMap(Set<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Map.of();
+        }
+        List<User> users = userMapper.selectBatchIds(userIds);
+        Map<Long, String> displayNameByUserId = new HashMap<>(users.size());
+        for (User user : users) {
+            displayNameByUserId.put(user.getId(), resolveUserDisplayName(user));
+        }
+        return displayNameByUserId;
+    }
+
+    private String resolveUserDisplayName(User user) {
+        if (user == null) {
+            return null;
+        }
+        if (user.getNickname() != null && !user.getNickname().isBlank()) {
+            return user.getNickname();
+        }
+        return user.getUsername();
+    }
+
+    private String resolveStatusLabel(Integer statusCode) {
+        if (statusCode == null) {
+            return null;
+        }
+        try {
+            return TaskStatus.fromCode(statusCode).getLabel();
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private String resolveGpuLabel(Long gpuId) {
+        if (gpuId == null) {
+            return null;
+        }
+        Gpu gpu = gpuMapper.selectById(gpuId);
+        return gpu == null ? null : gpu.getName();
+    }
+
+    private TaskAdminListItem toAdminListItem(GpuTask task) {
+        TaskStatus status = TaskStatus.fromCode(task.getStatus());
+        return TaskAdminListItem.builder()
+                .id(task.getId())
+                .title(task.getTitle())
+                .description(task.getDescription())
+                .taskType(task.getTaskType())
+                .status(status.getCode())
+                .statusLabel(status.getLabel())
+                .build();
     }
 
     private TaskResponse toResponse(GpuTask task) {

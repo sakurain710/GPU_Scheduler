@@ -1,10 +1,16 @@
 package com.sakurain.gpuscheduler.service;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.sakurain.gpuscheduler.config.TaskSubmissionPolicyConfig;
 import com.sakurain.gpuscheduler.dto.task.SubmitTaskRequest;
+import com.sakurain.gpuscheduler.dto.task.TaskAdminListItem;
+import com.sakurain.gpuscheduler.dto.task.TaskExecutionLogResponse;
 import com.sakurain.gpuscheduler.dto.task.TaskResponse;
+import com.sakurain.gpuscheduler.entity.Gpu;
 import com.sakurain.gpuscheduler.entity.GpuTask;
 import com.sakurain.gpuscheduler.entity.GpuTaskLog;
+import com.sakurain.gpuscheduler.entity.User;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.exception.InvalidTaskStateException;
 import com.sakurain.gpuscheduler.exception.BusinessException;
@@ -12,6 +18,7 @@ import com.sakurain.gpuscheduler.exception.ResourceNotFoundException;
 import com.sakurain.gpuscheduler.mapper.GpuMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskLogMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
+import com.sakurain.gpuscheduler.mapper.UserMapper;
 import com.sakurain.gpuscheduler.scheduler.TaskAgingScheduler;
 import com.sakurain.gpuscheduler.scheduler.TaskExecutionSimulator;
 import com.sakurain.gpuscheduler.scheduler.TaskPriorityQueue;
@@ -24,6 +31,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -46,6 +54,8 @@ class GpuTaskServiceTest {
     @Mock
     private GpuTaskLogMapper taskLogMapper;
     @Mock
+    private UserMapper userMapper;
+    @Mock
     private TaskPriorityQueue priorityQueue;
     @Mock
     private TaskAgingScheduler agingScheduler;
@@ -66,6 +76,7 @@ class GpuTaskServiceTest {
                 taskMapper,
                 gpuMapper,
                 taskLogMapper,
+                userMapper,
                 stateMachine,
                 priorityQueue,
                 agingScheduler,
@@ -224,6 +235,161 @@ class GpuTaskServiceTest {
     void getTask_notFound_throws() {
         when(taskMapper.selectById(999L)).thenReturn(null);
         assertThrows(ResourceNotFoundException.class, () -> gpuTaskService.getTask(999L));
+    }
+
+    @Test
+    void getTaskExecutionLogs_shouldReturnSummaryAndAscendingLogs() {
+        LocalDateTime timestamp = LocalDateTime.now();
+        GpuTask task = GpuTask.builder()
+                .id(100L)
+                .userId(1L)
+                .gpuId(7L)
+                .status(TaskStatus.RUNNING.getCode())
+                .basePriority(6)
+                .build();
+        when(taskMapper.selectById(100L)).thenReturn(task);
+
+        GpuTaskLog second = GpuTaskLog.builder()
+                .id(2L)
+                .taskId(100L)
+                .event("DISPATCHED")
+                .oldStatus(TaskStatus.QUEUED.getCode())
+                .newStatus(TaskStatus.RUNNING.getCode())
+                .operatorId(2L)
+                .createdAt(timestamp)
+                .build();
+        GpuTaskLog first = GpuTaskLog.builder()
+                .id(1L)
+                .taskId(100L)
+                .event("QUEUED")
+                .oldStatus(TaskStatus.PENDING.getCode())
+                .newStatus(TaskStatus.QUEUED.getCode())
+                .operatorId(null)
+                .createdAt(timestamp)
+                .build();
+        when(taskLogMapper.selectList(any())).thenReturn(List.of(second, first));
+        when(gpuMapper.selectById(7L)).thenReturn(Gpu.builder().id(7L).name("NVIDIA A100 80G").build());
+
+        User submitter = User.builder().id(1L).username("submitter").nickname("submitter_nick").build();
+        User approver = User.builder().id(2L).username("reviewer").nickname("reviewer_nick").build();
+        when(userMapper.selectBatchIds(any())).thenReturn(List.of(submitter, approver));
+
+        TaskExecutionLogResponse response = gpuTaskService.getTaskExecutionLogs(100L, 1L, List.of());
+
+        assertEquals(100L, response.getTask().getId());
+        assertEquals(7L, response.getTask().getGpuId());
+        assertEquals("NVIDIA A100 80G", response.getTask().getGpuLabel());
+        assertEquals(1L, response.getTask().getOperatorId());
+        assertEquals("submitter_nick", response.getTask().getOperatorName());
+
+        assertEquals(2, response.getLogs().size());
+        assertEquals("QUEUED", response.getLogs().get(0).getEvent());
+        assertEquals("Pending", response.getLogs().get(0).getOldStatusLabel());
+        assertEquals("Queued", response.getLogs().get(0).getNewStatusLabel());
+        assertNull(response.getLogs().get(0).getOperatorName());
+
+        assertEquals("DISPATCHED", response.getLogs().get(1).getEvent());
+        assertEquals("Queued", response.getLogs().get(1).getOldStatusLabel());
+        assertEquals("Running", response.getLogs().get(1).getNewStatusLabel());
+        assertEquals("reviewer_nick", response.getLogs().get(1).getOperatorName());
+    }
+
+    @Test
+    void getTaskExecutionLogs_withEmptyLogs_shouldReturnEmptyList() {
+        GpuTask task = GpuTask.builder()
+                .id(200L)
+                .userId(1L)
+                .status(TaskStatus.QUEUED.getCode())
+                .basePriority(5)
+                .build();
+        when(taskMapper.selectById(200L)).thenReturn(task);
+        when(taskLogMapper.selectList(any())).thenReturn(List.of());
+        when(userMapper.selectBatchIds(any())).thenReturn(List.of(User.builder().id(1L).username("alice").build()));
+
+        TaskExecutionLogResponse response = gpuTaskService.getTaskExecutionLogs(200L, 1L, List.of());
+
+        assertNotNull(response.getTask());
+        assertNotNull(response.getLogs());
+        assertTrue(response.getLogs().isEmpty());
+    }
+
+    @Test
+    void getTaskExecutionLogs_taskNotFound_shouldThrow() {
+        when(taskMapper.selectById(999L)).thenReturn(null);
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> gpuTaskService.getTaskExecutionLogs(999L, 1L, List.of()));
+    }
+
+    @Test
+    void getTaskExecutionLogs_withoutPermission_shouldThrow() {
+        GpuTask task = GpuTask.builder()
+                .id(300L)
+                .userId(2L)
+                .status(TaskStatus.QUEUED.getCode())
+                .build();
+        when(taskMapper.selectById(300L)).thenReturn(task);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> gpuTaskService.getTaskExecutionLogs(300L, 1L, List.of()));
+        assertEquals("TASK_FORBIDDEN", ex.getCode());
+    }
+
+    @Test
+    void getTaskExecutionLogs_shouldFallbackToUsernameWhenNicknameBlank() {
+        LocalDateTime timestamp = LocalDateTime.now();
+        GpuTask task = GpuTask.builder()
+                .id(400L)
+                .userId(1L)
+                .status(TaskStatus.QUEUED.getCode())
+                .build();
+        when(taskMapper.selectById(400L)).thenReturn(task);
+
+        GpuTaskLog log = GpuTaskLog.builder()
+                .id(10L)
+                .taskId(400L)
+                .event("QUEUED")
+                .newStatus(TaskStatus.QUEUED.getCode())
+                .operatorId(2L)
+                .createdAt(timestamp)
+                .build();
+        when(taskLogMapper.selectList(any())).thenReturn(List.of(log));
+
+        User submitter = User.builder().id(1L).username("submitter_username").nickname("  ").build();
+        User operator = User.builder().id(2L).username("operator_username").nickname("operator_nick").build();
+        when(userMapper.selectBatchIds(any())).thenReturn(List.of(submitter, operator));
+
+        TaskExecutionLogResponse response = gpuTaskService.getTaskExecutionLogs(400L, 1L, List.of());
+
+        assertEquals("submitter_username", response.getTask().getOperatorName());
+        assertEquals("operator_nick", response.getLogs().get(0).getOperatorName());
+    }
+
+    @Test
+    void listAdminTasks_shouldReturnTaskSummaryPage() {
+        GpuTask task = GpuTask.builder()
+                .id(501L)
+                .title("admin-task")
+                .description("task-remark")
+                .taskType("inference")
+                .status(TaskStatus.RUNNING.getCode())
+                .build();
+        Page<GpuTask> page = new Page<>(1, 10);
+        page.setRecords(List.of(task));
+        page.setTotal(1L);
+        when(taskMapper.selectPage(any(Page.class), any())).thenReturn(page);
+
+        IPage<TaskAdminListItem> result = gpuTaskService.listAdminTasks(1, 10, "inference", TaskStatus.RUNNING.getCode(), "asc");
+
+        assertEquals(1L, result.getTotal());
+        assertEquals(1, result.getRecords().size());
+        TaskAdminListItem item = result.getRecords().get(0);
+        assertEquals(501L, item.getId());
+        assertEquals("admin-task", item.getTitle());
+        assertEquals("task-remark", item.getDescription());
+        assertEquals("inference", item.getTaskType());
+        assertEquals(TaskStatus.RUNNING.getCode(), item.getStatus());
+        assertEquals("Running", item.getStatusLabel());
     }
 
     @Test
