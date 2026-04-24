@@ -34,3 +34,5 @@ build/
 /AGENTS.md
 
 /docs
+
+env.env
