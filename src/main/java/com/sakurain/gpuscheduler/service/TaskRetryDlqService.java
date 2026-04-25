@@ -2,8 +2,6 @@ package com.sakurain.gpuscheduler.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sakurain.gpuscheduler.config.TaskRetryPolicyConfig;
 import com.sakurain.gpuscheduler.entity.GpuTask;
 import com.sakurain.gpuscheduler.entity.TaskDlq;
@@ -39,7 +37,6 @@ public class TaskRetryDlqService {
     private final GpuTaskMapper taskMapper;
     private final TaskDlqMapper taskDlqMapper;
     private final GpuTaskService taskService;
-    private final ObjectMapper objectMapper;
     @Value("${scheduler.scheduled-jobs-enabled:true}")
     private boolean scheduledJobsEnabled;
 
@@ -47,14 +44,12 @@ public class TaskRetryDlqService {
                                TaskRetryPolicyConfig retryPolicy,
                                GpuTaskMapper taskMapper,
                                TaskDlqMapper taskDlqMapper,
-                               GpuTaskService taskService,
-                               ObjectMapper objectMapper) {
+                               GpuTaskService taskService) {
         this.redisTemplate = redisTemplate;
         this.retryPolicy = retryPolicy;
         this.taskMapper = taskMapper;
         this.taskDlqMapper = taskDlqMapper;
         this.taskService = taskService;
-        this.objectMapper = objectMapper;
     }
 
     /**
@@ -176,24 +171,9 @@ public class TaskRetryDlqService {
             markDlq(dlq, DLQ_STATUS_REPROCESSED, operatorId);
             return true;
         } catch (Exception ex) {
-            onTaskFailed(taskId, ex.getMessage());
+            log.warn("死信任务{}重新处理失败，保留在DLQ: {}", taskId, ex.getMessage());
         }
         return false;
-    }
-
-    private Long extractTaskId(String payload) {
-        if (payload == null || payload.isBlank()) {
-            return null;
-        }
-        try {
-            JsonNode root = objectMapper.readTree(payload);
-            if (!root.has("taskId") || !root.get("taskId").canConvertToLong()) {
-                return null;
-            }
-            return root.get("taskId").longValue();
-        } catch (Exception ex) {
-            return null;
-        }
     }
 
     private void pushToDlq(Long taskId, String reason, long attempt) {

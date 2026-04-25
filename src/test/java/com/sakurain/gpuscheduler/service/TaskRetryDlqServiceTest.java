@@ -1,6 +1,5 @@
 package com.sakurain.gpuscheduler.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sakurain.gpuscheduler.config.TaskRetryPolicyConfig;
 import com.sakurain.gpuscheduler.entity.TaskDlq;
 import com.sakurain.gpuscheduler.enums.TaskLogEvent;
@@ -20,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -49,8 +49,7 @@ class TaskRetryDlqServiceTest {
                 policy,
                 taskMapper,
                 taskDlqMapper,
-                taskService,
-                new ObjectMapper()
+                taskService
         );
         lenient().when(redisTemplate.opsForHash()).thenReturn(hashOperations);
     }
@@ -82,5 +81,27 @@ class TaskRetryDlqServiceTest {
         verify(hashOperations).delete("gpu:task:retry:count", "12");
         verify(taskService).transition(12L, TaskStatus.QUEUED, null, null, TaskLogEvent.DLQ_REPROCESSED, "x");
         verify(taskDlqMapper).updateById(any(TaskDlq.class));
+    }
+
+    @Test
+    void reprocessDlqTask_shouldKeepPendingWhenRequeueFails() {
+        when(taskDlqMapper.selectOne(any())).thenReturn(TaskDlq.builder()
+                .id(1L)
+                .taskId(12L)
+                .retryCount(2)
+                .failureReason("x")
+                .status(1)
+                .build());
+        doThrow(new RuntimeException("transition failed"))
+                .when(taskService)
+                .transition(12L, TaskStatus.QUEUED, null, null, TaskLogEvent.DLQ_REPROCESSED, "x");
+
+        boolean reprocessed = retryDlqService.reprocessDlqTask(12L);
+
+        assertFalse(reprocessed);
+        verify(hashOperations).delete("gpu:task:retry:count", "12");
+        verify(hashOperations, never()).increment(eq("gpu:task:retry:count"), eq("12"), anyLong());
+        verify(taskDlqMapper, never()).insert(any(TaskDlq.class));
+        verify(taskDlqMapper, never()).updateById(any(TaskDlq.class));
     }
 }

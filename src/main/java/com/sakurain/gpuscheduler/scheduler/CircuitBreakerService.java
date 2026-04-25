@@ -3,6 +3,7 @@ package com.sakurain.gpuscheduler.scheduler;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -32,6 +33,7 @@ public class CircuitBreakerService {
     private final AtomicReference<State> state = new AtomicReference<>(State.CLOSED);
     private final AtomicInteger failureCount = new AtomicInteger(0);
     private final AtomicLong lastFailureTime = new AtomicLong(0);
+    private final AtomicBoolean halfOpenProbeInFlight = new AtomicBoolean(false);
 
     /**
      * 判断是否允许请求通过
@@ -48,15 +50,16 @@ public class CircuitBreakerService {
             if (elapsed >= RESET_TIMEOUT_MS) {
                 // 超过重置超时，转为半开状态
                 if (state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
+                    halfOpenProbeInFlight.set(false);
                     log.info("熔断器转为HALF_OPEN，开始探测");
                 }
-                return true;
+                return halfOpenProbeInFlight.compareAndSet(false, true);
             }
             return false;
         }
 
         // HALF_OPEN 状态允许一个请求通过
-        return true;
+        return halfOpenProbeInFlight.compareAndSet(false, true);
     }
 
     /**
@@ -81,6 +84,7 @@ public class CircuitBreakerService {
 
         State current = state.get();
         if (current == State.HALF_OPEN) {
+            halfOpenProbeInFlight.set(false);
             state.set(State.OPEN);
             log.warn("熔断器探测失败，重新OPEN");
             return;
@@ -100,6 +104,7 @@ public class CircuitBreakerService {
         state.set(State.CLOSED);
         failureCount.set(0);
         lastFailureTime.set(0);
+        halfOpenProbeInFlight.set(false);
     }
 
     public State getState() {
