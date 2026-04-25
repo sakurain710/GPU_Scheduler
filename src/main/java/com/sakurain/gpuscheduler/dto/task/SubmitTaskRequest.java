@@ -33,6 +33,10 @@ public class SubmitTaskRequest {
     @Size(max = 65535, message = "描述过长")
     private String description;
 
+    @Schema(description = "Task application reason")
+    @Size(max = 500, message = "申请理由不能超过500个字符")
+    private String applyReason;
+
     @Schema(description = "Task type", example = "model_training")
     @NotBlank(message = "任务类型不能为空")
     @Size(max = 64, message = "任务类型不能超过64个字符")
@@ -51,5 +55,6 @@ public class SubmitTaskRequest {
     @Schema(description = "Base priority [1,10]", example = "5")
     @Min(value = 1, message = "优先级最小为1")
     @Max(value = 10, message = "优先级最大为10")
+    @Builder.Default
     private Integer basePriority = 5;
 }

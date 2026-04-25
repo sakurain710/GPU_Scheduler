@@ -25,6 +25,7 @@ public class TaskResponse {
     private Long gpuId;
     private String title;
     private String description;
+    private String applyReason;
     private String taskType;
     private BigDecimal minMemoryGb;
     private BigDecimal computeUnitsGflop;
@@ -34,6 +35,10 @@ public class TaskResponse {
     private BigDecimal estimatedSeconds;
     private BigDecimal actualSeconds;
     private String errorMessage;
+    private Long reviewerId;
+    private LocalDateTime reviewAt;
+    private String rejectReason;
+    private String cancelReason;
     private LocalDateTime enqueueAt;
     private LocalDateTime dispatchedAt;
     private LocalDateTime estimatedFinishAt;

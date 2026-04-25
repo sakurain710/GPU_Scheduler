@@ -3,7 +3,9 @@ package com.sakurain.gpuscheduler.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sakurain.gpuscheduler.dto.task.TaskStatusNotification;
+import com.sakurain.gpuscheduler.entity.Notification;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
+import com.sakurain.gpuscheduler.mapper.NotificationMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -32,6 +34,7 @@ public class TaskNotificationService {
     private final RedisTemplate<String, String> redisTemplate;
     private final ObjectMapper objectMapper;
     private final TaskDashboardPushService taskDashboardPushService;
+    private final NotificationMapper notificationMapper;
 
     @Value("${notification.task-topic-prefix:/topic/task-status/}")
     private String taskTopicPrefix;
@@ -57,11 +60,13 @@ public class TaskNotificationService {
     public TaskNotificationService(SimpMessagingTemplate messagingTemplate,
                                    RedisTemplate<String, String> redisTemplate,
                                    ObjectMapper objectMapper,
-                                   TaskDashboardPushService taskDashboardPushService) {
+                                   TaskDashboardPushService taskDashboardPushService,
+                                   NotificationMapper notificationMapper) {
         this.messagingTemplate = messagingTemplate;
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.taskDashboardPushService = taskDashboardPushService;
+        this.notificationMapper = notificationMapper;
     }
 
     public void notifyTaskStatus(Long taskId,
@@ -81,6 +86,7 @@ public class TaskNotificationService {
                 .message(message)
                 .build();
 
+        saveNotification(payload);
         pushWebSocket(payload);
         taskDashboardPushService.pushToUser(userId);
         pushWebhook(payload, 1);
@@ -113,6 +119,28 @@ public class TaskNotificationService {
     private void pushWebSocket(TaskStatusNotification payload) {
         String topic = taskTopicPrefix + payload.getUserId();
         messagingTemplate.convertAndSend(topic, payload);
+    }
+
+    private void saveNotification(TaskStatusNotification payload) {
+        try {
+            notificationMapper.insert(Notification.builder()
+                    .userId(payload.getUserId())
+                    .taskId(payload.getTaskId())
+                    .title("任务状态变更")
+                    .content(buildNotificationContent(payload))
+                    .type("task_status")
+                    .build());
+        } catch (Exception ex) {
+            log.warn("任务状态通知落库失败: taskId={}, err={}", payload.getTaskId(), ex.getMessage());
+        }
+    }
+
+    private String buildNotificationContent(TaskStatusNotification payload) {
+        String content = payload.getFromStatus() + " -> " + payload.getToStatus();
+        if (payload.getMessage() != null && !payload.getMessage().isBlank()) {
+            content += ": " + payload.getMessage();
+        }
+        return content.length() <= 1000 ? content : content.substring(0, 1000);
     }
 
     private void pushWebhook(TaskStatusNotification payload, int attempt) {

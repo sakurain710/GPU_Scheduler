@@ -224,6 +224,7 @@ public class TaskDashboardService {
                 .gpuId(task.getGpuId())
                 .title(task.getTitle())
                 .description(task.getDescription())
+                .applyReason(task.getApplyReason())
                 .taskType(task.getTaskType())
                 .minMemoryGb(task.getMinMemoryGb())
                 .status(task.getStatus())
@@ -232,6 +233,10 @@ public class TaskDashboardService {
                 .estimatedSeconds(task.getEstimatedSeconds())
                 .actualSeconds(task.getActualSeconds())
                 .errorMessage(task.getErrorMessage())
+                .reviewerId(task.getReviewerId())
+                .reviewAt(task.getReviewAt())
+                .rejectReason(task.getRejectReason())
+                .cancelReason(task.getCancelReason())
                 .enqueueAt(task.getEnqueueAt())
                 .dispatchedAt(task.getDispatchedAt())
                 .estimatedFinishAt(task.getEstimatedFinishAt())
@@ -295,7 +300,9 @@ public class TaskDashboardService {
         for (Gpu gpu : allGpus) {
             BigDecimal gpuMemory = gpu.getMemoryGb() != null ? gpu.getMemoryGb() : BigDecimal.ZERO;
             GpuTask runningTask = runningTaskByGpuId.get(gpu.getId());
-            BigDecimal usedMemory = runningTask != null && runningTask.getMinMemoryGb() != null
+            BigDecimal usedMemory = gpu.getAllocatedMemoryGb() != null
+                    ? gpu.getAllocatedMemoryGb()
+                    : runningTask != null && runningTask.getMinMemoryGb() != null
                     ? runningTask.getMinMemoryGb()
                     : BigDecimal.ZERO;
             freeMemory = freeMemory.add(gpuMemory.subtract(usedMemory).max(BigDecimal.ZERO));
@@ -429,11 +436,22 @@ public class TaskDashboardService {
             return COMPLETED_RESULT_SUMMARY;
         }
         if (status == TaskStatus.FAILED || status == TaskStatus.REJECTED || status == TaskStatus.CANCELLED) {
-            return task.getErrorMessage() != null && !task.getErrorMessage().isBlank()
-                    ? summarize(task.getErrorMessage())
+            String reason = resolveTerminalReason(task, status);
+            return reason != null && !reason.isBlank()
+                    ? summarize(reason)
                     : status.getLabel();
         }
         return null;
+    }
+
+    private String resolveTerminalReason(GpuTask task, TaskStatus status) {
+        if (status == TaskStatus.REJECTED) {
+            return task.getRejectReason();
+        }
+        if (status == TaskStatus.CANCELLED) {
+            return task.getCancelReason();
+        }
+        return task.getErrorMessage();
     }
 
     private String summarize(String message) {

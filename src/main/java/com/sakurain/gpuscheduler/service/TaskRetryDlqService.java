@@ -1,11 +1,16 @@
 package com.sakurain.gpuscheduler.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sakurain.gpuscheduler.config.TaskRetryPolicyConfig;
 import com.sakurain.gpuscheduler.entity.GpuTask;
+import com.sakurain.gpuscheduler.entity.TaskDlq;
+import com.sakurain.gpuscheduler.enums.TaskLogEvent;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
+import com.sakurain.gpuscheduler.mapper.TaskDlqMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -25,11 +30,14 @@ public class TaskRetryDlqService {
 
     private static final String RETRY_COUNT_KEY = "gpu:task:retry:count";
     private static final String RETRY_SCHEDULE_KEY = "gpu:task:retry:schedule";
-    private static final String DLQ_KEY = "gpu:task:dlq";
+    private static final int DLQ_STATUS_PENDING = 1;
+    private static final int DLQ_STATUS_REPROCESSED = 2;
+    private static final int DLQ_STATUS_IGNORED = 3;
 
     private final RedisTemplate<String, String> redisTemplate;
     private final TaskRetryPolicyConfig retryPolicy;
     private final GpuTaskMapper taskMapper;
+    private final TaskDlqMapper taskDlqMapper;
     private final GpuTaskService taskService;
     private final ObjectMapper objectMapper;
     @Value("${scheduler.scheduled-jobs-enabled:true}")
@@ -38,11 +46,13 @@ public class TaskRetryDlqService {
     public TaskRetryDlqService(RedisTemplate<String, String> redisTemplate,
                                TaskRetryPolicyConfig retryPolicy,
                                GpuTaskMapper taskMapper,
+                               TaskDlqMapper taskDlqMapper,
                                GpuTaskService taskService,
                                ObjectMapper objectMapper) {
         this.redisTemplate = redisTemplate;
         this.retryPolicy = retryPolicy;
         this.taskMapper = taskMapper;
+        this.taskDlqMapper = taskDlqMapper;
         this.taskService = taskService;
         this.objectMapper = objectMapper;
     }
@@ -110,7 +120,14 @@ public class TaskRetryDlqService {
     }
 
     public List<String> listDlq(int limit) {
-        return redisTemplate.opsForList().range(DLQ_KEY, 0, Math.max(0, limit - 1));
+        int normalizedLimit = Math.max(1, limit);
+        return taskDlqMapper.selectList(new LambdaQueryWrapper<TaskDlq>()
+                        .eq(TaskDlq::getStatus, DLQ_STATUS_PENDING)
+                        .orderByDesc(TaskDlq::getCreatedAt)
+                        .last("LIMIT " + normalizedLimit))
+                .stream()
+                .map(this::toDlqPayload)
+                .toList();
     }
 
     public long retryQueueSize() {
@@ -119,36 +136,47 @@ public class TaskRetryDlqService {
     }
 
     public long dlqSize() {
-        Long size = redisTemplate.opsForList().size(DLQ_KEY);
+        Long size = taskDlqMapper.selectCount(new LambdaQueryWrapper<TaskDlq>()
+                .eq(TaskDlq::getStatus, DLQ_STATUS_PENDING));
         return size != null ? size : 0L;
     }
 
     public long clearDlq() {
-        Boolean removed = redisTemplate.delete(DLQ_KEY);
-        return Boolean.TRUE.equals(removed) ? 1L : 0L;
+        Long pending = dlqSize();
+        if (pending == 0) {
+            return 0L;
+        }
+        taskDlqMapper.update(null, new LambdaUpdateWrapper<TaskDlq>()
+                .eq(TaskDlq::getStatus, DLQ_STATUS_PENDING)
+                .set(TaskDlq::getStatus, DLQ_STATUS_IGNORED)
+                .set(TaskDlq::getProcessedAt, LocalDateTime.now()));
+        return pending;
     }
 
     /**
      * 从死信队列中移除并重入队指定任务
      */
     public boolean reprocessDlqTask(Long taskId) {
-        List<String> items = listDlq(1000);
-        if (items == null || items.isEmpty()) {
+        return reprocessDlqTask(taskId, null);
+    }
+
+    public boolean reprocessDlqTask(Long taskId, Long operatorId) {
+        TaskDlq dlq = taskDlqMapper.selectOne(new LambdaQueryWrapper<TaskDlq>()
+                .eq(TaskDlq::getTaskId, taskId)
+                .eq(TaskDlq::getStatus, DLQ_STATUS_PENDING)
+                .orderByDesc(TaskDlq::getCreatedAt)
+                .last("LIMIT 1"));
+        if (dlq == null) {
             return false;
         }
-        for (String item : items) {
-            if (taskId.equals(extractTaskId(item))) {
-                Long removed = redisTemplate.opsForList().remove(DLQ_KEY, 1, item);
-                if (removed != null && removed > 0) {
-                    redisTemplate.opsForHash().delete(RETRY_COUNT_KEY, taskId.toString());
-                    try {
-                        taskService.transition(taskId, TaskStatus.QUEUED, null, null);
-                        return true;
-                    } catch (Exception ex) {
-                        onTaskFailed(taskId, ex.getMessage());
-                    }
-                }
-            }
+        redisTemplate.opsForHash().delete(RETRY_COUNT_KEY, taskId.toString());
+        try {
+            taskService.transition(taskId, TaskStatus.QUEUED, null, null,
+                    TaskLogEvent.DLQ_REPROCESSED, dlq.getFailureReason());
+            markDlq(dlq, DLQ_STATUS_REPROCESSED, operatorId);
+            return true;
+        } catch (Exception ex) {
+            onTaskFailed(taskId, ex.getMessage());
         }
         return false;
     }
@@ -176,9 +204,43 @@ public class TaskRetryDlqService {
                 sanitize(reason),
                 LocalDateTime.now()
         );
-        redisTemplate.opsForList().leftPush(DLQ_KEY, payload);
+        taskDlqMapper.insert(TaskDlq.builder()
+                .taskId(taskId)
+                .retryCount((int) Math.min(attempt, Integer.MAX_VALUE))
+                .failureReason(sanitize(reason))
+                .payload(payload)
+                .status(DLQ_STATUS_PENDING)
+                .build());
         redisTemplate.opsForZSet().remove(RETRY_SCHEDULE_KEY, taskId.toString());
+        GpuTask task = taskMapper.selectById(taskId);
+        if (task != null) {
+            taskService.appendAudit(taskId, task.getGpuId(), TaskLogEvent.DLQ_ENTERED,
+                    TaskStatus.fromCode(task.getStatus()), TaskStatus.fromCode(task.getStatus()),
+                    null, reason);
+        }
         log.warn("任务{}进入死信队列: attempt={}, reason={}", taskId, attempt, reason);
+    }
+
+    private void markDlq(TaskDlq dlq, int status, Long operatorId) {
+        TaskDlq update = new TaskDlq();
+        update.setId(dlq.getId());
+        update.setStatus(status);
+        update.setProcessedBy(operatorId);
+        update.setProcessedAt(LocalDateTime.now());
+        taskDlqMapper.updateById(update);
+    }
+
+    private String toDlqPayload(TaskDlq dlq) {
+        if (dlq.getPayload() != null && !dlq.getPayload().isBlank()) {
+            return dlq.getPayload();
+        }
+        return String.format(
+                "{\"taskId\":%d,\"attempt\":%d,\"reason\":\"%s\",\"time\":\"%s\"}",
+                dlq.getTaskId(),
+                dlq.getRetryCount() == null ? 0 : dlq.getRetryCount(),
+                sanitize(dlq.getFailureReason()),
+                dlq.getCreatedAt()
+        );
     }
 
     private String sanitize(String input) {

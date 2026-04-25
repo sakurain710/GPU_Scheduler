@@ -19,6 +19,11 @@ spring:
     username: sa
     password:
 
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-test.sql
+
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true

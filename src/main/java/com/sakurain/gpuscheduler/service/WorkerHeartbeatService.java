@@ -5,6 +5,7 @@ import com.sakurain.gpuscheduler.config.WorkerHeartbeatPolicyConfig;
 import com.sakurain.gpuscheduler.entity.Gpu;
 import com.sakurain.gpuscheduler.entity.GpuTask;
 import com.sakurain.gpuscheduler.enums.GpuStatus;
+import com.sakurain.gpuscheduler.enums.TaskLogEvent;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.mapper.GpuMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
@@ -54,6 +55,7 @@ public class WorkerHeartbeatService {
         String key = heartbeatKey(gpuId);
         long ttl = Math.max(policy.getStaleThresholdSeconds() * 3L, 30L);
         redisTemplate.opsForValue().set(key, Long.toString(nowEpoch), ttl, TimeUnit.SECONDS);
+        gpuMapper.updateHeartbeat(gpuId);
 
         // OFFLINE worker恢复心跳后，允许自动恢复为IDLE。
         gpuMapper.tryMarkIdleFromOffline(
@@ -114,7 +116,8 @@ public class WorkerHeartbeatService {
                 update.setId(runningTask.getId());
                 update.setErrorMessage(reason);
                 gpuTaskMapper.updateById(update);
-                gpuTaskService.transition(runningTask.getId(), TaskStatus.QUEUED, null, null);
+                gpuTaskService.transition(runningTask.getId(), TaskStatus.QUEUED, null, null,
+                        TaskLogEvent.HEARTBEAT_LOST, reason);
             } catch (Exception ex) {
                 log.warn("stale worker recovery task transition failed: gpuId={}, taskId={}, err={}",
                         gpuId, runningTask.getId(), ex.getMessage());
@@ -124,7 +127,9 @@ public class WorkerHeartbeatService {
         gpuMapper.tryMarkOfflineFromBusy(
                 gpuId,
                 GpuStatus.BUSY.getCode(),
-                GpuStatus.OFFLINE.getCode()
+                GpuStatus.OFFLINE.getCode(),
+                "Worker heartbeat stale"
+                        + (heartbeatAge == null ? "" : ", ageSeconds=" + heartbeatAge)
         );
         log.warn("stale worker detected and marked offline: gpuId={}, heartbeatAgeSeconds={}", gpuId, heartbeatAge);
     }

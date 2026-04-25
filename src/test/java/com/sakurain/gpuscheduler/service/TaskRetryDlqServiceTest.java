@@ -2,18 +2,18 @@ package com.sakurain.gpuscheduler.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sakurain.gpuscheduler.config.TaskRetryPolicyConfig;
+import com.sakurain.gpuscheduler.entity.TaskDlq;
+import com.sakurain.gpuscheduler.enums.TaskLogEvent;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
+import com.sakurain.gpuscheduler.mapper.TaskDlqMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.HashOperations;
-import org.springframework.data.redis.core.ListOperations;
 import org.springframework.data.redis.core.RedisTemplate;
-
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -31,11 +31,11 @@ class TaskRetryDlqServiceTest {
     @Mock
     private RedisTemplate<String, String> redisTemplate;
     @Mock
-    private ListOperations<String, String> listOperations;
-    @Mock
     private HashOperations<String, Object, Object> hashOperations;
     @Mock
     private GpuTaskMapper taskMapper;
+    @Mock
+    private TaskDlqMapper taskDlqMapper;
     @Mock
     private GpuTaskService taskService;
 
@@ -48,36 +48,39 @@ class TaskRetryDlqServiceTest {
                 redisTemplate,
                 policy,
                 taskMapper,
+                taskDlqMapper,
                 taskService,
                 new ObjectMapper()
         );
-        lenient().when(redisTemplate.opsForList()).thenReturn(listOperations);
         lenient().when(redisTemplate.opsForHash()).thenReturn(hashOperations);
     }
 
     @Test
     void reprocessDlqTask_shouldNotMatchSubstringTaskId() {
-        when(listOperations.range("gpu:task:dlq", 0, 999)).thenReturn(
-                List.of("{\"taskId\":112,\"attempt\":1,\"reason\":\"x\",\"time\":\"t\"}")
-        );
+        when(taskDlqMapper.selectOne(any())).thenReturn(null);
 
         boolean reprocessed = retryDlqService.reprocessDlqTask(12L);
 
         assertFalse(reprocessed);
-        verify(listOperations, never()).remove(eq("gpu:task:dlq"), eq(1L), any());
+        verify(taskDlqMapper, never()).updateById(any(TaskDlq.class));
         verify(taskService, never()).transition(anyLong(), eq(TaskStatus.QUEUED), any(), any());
     }
 
     @Test
     void reprocessDlqTask_shouldRequeueWhenTaskIdExactlyMatches() {
-        String payload = "{\"taskId\":12,\"attempt\":2,\"reason\":\"x\",\"time\":\"t\"}";
-        when(listOperations.range("gpu:task:dlq", 0, 999)).thenReturn(List.of(payload));
-        when(listOperations.remove("gpu:task:dlq", 1, payload)).thenReturn(1L);
+        when(taskDlqMapper.selectOne(any())).thenReturn(TaskDlq.builder()
+                .id(1L)
+                .taskId(12L)
+                .retryCount(2)
+                .failureReason("x")
+                .status(1)
+                .build());
 
         boolean reprocessed = retryDlqService.reprocessDlqTask(12L);
 
         assertTrue(reprocessed);
         verify(hashOperations).delete("gpu:task:retry:count", "12");
-        verify(taskService).transition(12L, TaskStatus.QUEUED, null, null);
+        verify(taskService).transition(12L, TaskStatus.QUEUED, null, null, TaskLogEvent.DLQ_REPROCESSED, "x");
+        verify(taskDlqMapper).updateById(any(TaskDlq.class));
     }
 }

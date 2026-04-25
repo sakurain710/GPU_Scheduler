@@ -21,6 +21,7 @@ public class TaskWorkbenchItem {
     private Long gpuId;
     private String title;
     private String description;
+    private String applyReason;
     private String taskType;
     private BigDecimal minMemoryGb;
     private Integer status;
@@ -29,6 +30,10 @@ public class TaskWorkbenchItem {
     private BigDecimal estimatedSeconds;
     private BigDecimal actualSeconds;
     private String errorMessage;
+    private Long reviewerId;
+    private LocalDateTime reviewAt;
+    private String rejectReason;
+    private String cancelReason;
     private LocalDateTime enqueueAt;
     private LocalDateTime dispatchedAt;
     private LocalDateTime estimatedFinishAt;

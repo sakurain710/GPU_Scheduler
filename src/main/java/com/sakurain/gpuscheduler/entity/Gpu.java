@@ -41,6 +41,12 @@ public class Gpu {
     private BigDecimal memoryGb;
 
     /**
+     * 当前已分配显存（GB）
+     */
+    @TableField("allocated_memory_gb")
+    private BigDecimal allocatedMemoryGb;
+
+    /**
      * FP32峰值算力（TFLOPS）
      * estimated_seconds = compute_units_gflop / (此值 × 1000)
      */
@@ -52,6 +58,18 @@ public class Gpu {
      */
     @TableField("status")
     private Integer status;
+
+    /**
+     * 最近一次心跳时间
+     */
+    @TableField("last_heartbeat_at")
+    private LocalDateTime lastHeartbeatAt;
+
+    /**
+     * 离线原因
+     */
+    @TableField("offline_reason")
+    private String offlineReason;
 
     /**
      * 备注

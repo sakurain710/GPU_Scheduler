@@ -15,6 +15,7 @@ import com.sakurain.gpuscheduler.entity.GpuTask;
 import com.sakurain.gpuscheduler.entity.GpuTaskLog;
 import com.sakurain.gpuscheduler.entity.User;
 import com.sakurain.gpuscheduler.enums.GpuStatus;
+import com.sakurain.gpuscheduler.enums.TaskLogEvent;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.exception.BusinessException;
 import com.sakurain.gpuscheduler.exception.ResourceNotFoundException;
@@ -31,6 +32,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -98,6 +100,7 @@ public class GpuTaskService {
                 .userId(userId)
                 .title(request.getTitle())
                 .description(request.getDescription())
+                .applyReason(request.getApplyReason())
                 .taskType(request.getTaskType())
                 .minMemoryGb(request.getMinMemoryGb())
                 .computeUnitsGflop(request.getComputeUnitsGflop())
@@ -117,6 +120,16 @@ public class GpuTaskService {
 
     @Transactional
     public void transition(Long taskId, TaskStatus target, Long gpuId, Long operatorId) {
+        transition(taskId, target, gpuId, operatorId, null, null);
+    }
+
+    @Transactional
+    public void transition(Long taskId,
+                           TaskStatus target,
+                           Long gpuId,
+                           Long operatorId,
+                           TaskLogEvent event,
+                           String detail) {
         GpuTask task = taskMapper.selectById(taskId);
         if (task == null) {
             throw new ResourceNotFoundException("Task not found: " + taskId);
@@ -131,7 +144,7 @@ public class GpuTaskService {
 
         task.setStatus(target.getCode());
         if (target == TaskStatus.QUEUED) {
-            task.setEnqueueAt(java.time.LocalDateTime.now());
+            task.setEnqueueAt(LocalDateTime.now());
             // 支持抢占后重入队：清理运行态字段
             task.setGpuId(null);
             task.setDispatchedAt(null);
@@ -139,10 +152,10 @@ public class GpuTaskService {
         }
         if (target == TaskStatus.RUNNING && gpuId != null) {
             task.setGpuId(gpuId);
-            task.setDispatchedAt(java.time.LocalDateTime.now());
+            task.setDispatchedAt(LocalDateTime.now());
         }
         if (target.isTerminal()) {
-            task.setFinishedAt(java.time.LocalDateTime.now());
+            task.setFinishedAt(LocalDateTime.now());
         }
         taskMapper.updateById(task);
 
@@ -153,13 +166,13 @@ public class GpuTaskService {
             priorityQueue.remove(taskId);
         }
 
-        writeAudit(taskId, gpuId, from, target, operatorId);
+        writeAudit(taskId, gpuId, from, target, operatorId, event, detail);
         taskNotificationService.notifyTaskStatus(
                 taskId,
                 task.getUserId(),
                 from,
                 target,
-                task.getErrorMessage()
+                resolveNotificationMessage(task, target)
         );
     }
 
@@ -223,11 +236,22 @@ public class GpuTaskService {
 
     @Transactional
     public void cancelTask(Long taskId, Long requesterId, List<String> roleCodes) {
+        cancelTask(taskId, requesterId, roleCodes, null);
+    }
+
+    @Transactional
+    public void cancelTask(Long taskId, Long requesterId, List<String> roleCodes, String reason) {
         GpuTask task = taskMapper.selectById(taskId);
         if (task == null) {
             throw new ResourceNotFoundException("Task not found: " + taskId);
         }
         validateTaskOwnerOrApprover(task, requesterId, roleCodes);
+        if (reason != null && !reason.isBlank()) {
+            GpuTask update = new GpuTask();
+            update.setId(taskId);
+            update.setCancelReason(reason);
+            taskMapper.updateById(update);
+        }
         transition(taskId, TaskStatus.CANCELLED, null, requesterId);
     }
 
@@ -333,18 +357,23 @@ public class GpuTaskService {
 
     @Transactional
     public TaskResponse approveTask(Long taskId, Long approverId) {
-        transition(taskId, TaskStatus.QUEUED, null, approverId);
+        GpuTask update = new GpuTask();
+        update.setId(taskId);
+        update.setReviewerId(approverId);
+        update.setReviewAt(LocalDateTime.now());
+        taskMapper.updateById(update);
+        transition(taskId, TaskStatus.QUEUED, null, approverId, TaskLogEvent.APPROVED, null);
         return getTask(taskId);
     }
 
     @Transactional
     public TaskResponse rejectTask(Long taskId, Long approverId, String reason) {
-        if (reason != null && !reason.isBlank()) {
-            GpuTask update = new GpuTask();
-            update.setId(taskId);
-            update.setErrorMessage(reason);
-            taskMapper.updateById(update);
-        }
+        GpuTask update = new GpuTask();
+        update.setId(taskId);
+        update.setReviewerId(approverId);
+        update.setReviewAt(LocalDateTime.now());
+        update.setRejectReason(reason);
+        taskMapper.updateById(update);
         transition(taskId, TaskStatus.REJECTED, null, approverId);
         return getTask(taskId);
     }
@@ -386,10 +415,10 @@ public class GpuTaskService {
         if (reason != null && !reason.isBlank()) {
             GpuTask update = new GpuTask();
             update.setId(taskId);
-            update.setErrorMessage(reason);
+            update.setCancelReason(reason);
             taskMapper.updateById(update);
         }
-        transition(taskId, TaskStatus.QUEUED, null, operatorId);
+        transition(taskId, TaskStatus.QUEUED, null, operatorId, TaskLogEvent.PREEMPTED, reason);
         if (gpuId != null) {
             gpuMapper.tryMarkIdle(gpuId, GpuStatus.BUSY.getCode(), GpuStatus.IDLE.getCode());
         }
@@ -418,7 +447,7 @@ public class GpuTaskService {
         }
 
         Long gpuId = task.getGpuId();
-        transition(taskId, TaskStatus.FAILED, gpuId, operatorId);
+        transition(taskId, TaskStatus.FAILED, gpuId, operatorId, TaskLogEvent.FORCE_FAILED, reason);
         if (gpuId != null) {
             gpuMapper.tryMarkIdle(gpuId, GpuStatus.BUSY.getCode(), GpuStatus.IDLE.getCode());
         }
@@ -439,7 +468,7 @@ public class GpuTaskService {
             if (reason != null && !reason.isBlank()) {
                 GpuTask update = new GpuTask();
                 update.setId(queuedTask.getId());
-                update.setErrorMessage(reason);
+                update.setCancelReason(reason);
                 taskMapper.updateById(update);
             }
             transition(queuedTask.getId(), TaskStatus.CANCELLED, null, operatorId);
@@ -499,13 +528,34 @@ public class GpuTaskService {
         return List.copyOf(new LinkedHashSet<>(taskIds));
     }
 
+    public void appendAudit(Long taskId,
+                            Long gpuId,
+                            TaskLogEvent event,
+                            TaskStatus oldStatus,
+                            TaskStatus newStatus,
+                            Long operatorId,
+                            String detail) {
+        writeAudit(taskId, gpuId, oldStatus, newStatus, operatorId, event, detail);
+    }
+
     private void writeAudit(Long taskId, Long gpuId, TaskStatus oldStatus, TaskStatus newStatus, Long operatorId) {
+        writeAudit(taskId, gpuId, oldStatus, newStatus, operatorId, null, null);
+    }
+
+    private void writeAudit(Long taskId,
+                            Long gpuId,
+                            TaskStatus oldStatus,
+                            TaskStatus newStatus,
+                            Long operatorId,
+                            TaskLogEvent event,
+                            String detail) {
         GpuTaskLog logEntry = GpuTaskLog.builder()
                 .taskId(taskId)
                 .gpuId(gpuId)
-                .event(stateMachine.resolveEvent(newStatus))
-                .oldStatus(oldStatus.getCode())
-                .newStatus(newStatus.getCode())
+                .event(event != null ? event.getCode() : stateMachine.resolveEvent(newStatus))
+                .oldStatus(oldStatus == null ? null : oldStatus.getCode())
+                .newStatus(newStatus == null ? null : newStatus.getCode())
+                .detail(detail)
                 .operatorId(operatorId)
                 .build();
         taskLogMapper.insert(logEntry);
@@ -587,6 +637,7 @@ public class GpuTaskService {
                 .gpuId(task.getGpuId())
                 .title(task.getTitle())
                 .description(task.getDescription())
+                .applyReason(task.getApplyReason())
                 .taskType(task.getTaskType())
                 .minMemoryGb(task.getMinMemoryGb())
                 .computeUnitsGflop(task.getComputeUnitsGflop())
@@ -596,11 +647,28 @@ public class GpuTaskService {
                 .estimatedSeconds(task.getEstimatedSeconds())
                 .actualSeconds(task.getActualSeconds())
                 .errorMessage(task.getErrorMessage())
+                .reviewerId(task.getReviewerId())
+                .reviewAt(task.getReviewAt())
+                .rejectReason(task.getRejectReason())
+                .cancelReason(task.getCancelReason())
                 .enqueueAt(task.getEnqueueAt())
                 .dispatchedAt(task.getDispatchedAt())
                 .estimatedFinishAt(task.getEstimatedFinishAt())
                 .finishedAt(task.getFinishedAt())
                 .createdAt(task.getCreatedAt())
                 .build();
+    }
+
+    private String resolveNotificationMessage(GpuTask task, TaskStatus target) {
+        if (target == TaskStatus.REJECTED) {
+            return task.getRejectReason();
+        }
+        if (target == TaskStatus.CANCELLED) {
+            return task.getCancelReason();
+        }
+        if (target == TaskStatus.FAILED) {
+            return task.getErrorMessage();
+        }
+        return null;
     }
 }

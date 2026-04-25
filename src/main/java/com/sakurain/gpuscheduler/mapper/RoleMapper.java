@@ -50,7 +50,9 @@ public interface RoleMapper extends BaseMapper<Role> {
     /**
      * 查询角色及其所有父角色（递归查询角色层级）
      */
-    @Select("WITH RECURSIVE role_hierarchy AS (" +
+    @Select("WITH RECURSIVE role_hierarchy(" +
+            "id, code, name, parent_role_id, role_type, sort_order, description, status, created_by, created_at, updated_at" +
+            ") AS (" +
             "  SELECT * FROM role WHERE id = #{roleId} " +
             "  UNION ALL " +
             "  SELECT r.* FROM role r " +

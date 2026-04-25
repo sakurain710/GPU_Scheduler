@@ -6,6 +6,7 @@ import com.sakurain.gpuscheduler.enums.GpuStatus;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.exception.BusinessException;
 import com.sakurain.gpuscheduler.mapper.GpuMapper;
+import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
 import com.sakurain.gpuscheduler.service.GpuTaskService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,13 +28,16 @@ public class TaskAssignmentService {
     private static final long MIN_DELAY_NANOS = 1_000_000L;
 
     private final GpuMapper gpuMapper;
+    private final GpuTaskMapper taskMapper;
     private final GpuTaskService taskService;
     private final TaskExecutionSimulator simulator;
 
     public TaskAssignmentService(GpuMapper gpuMapper,
+                                 GpuTaskMapper taskMapper,
                                  GpuTaskService taskService,
                                  TaskExecutionSimulator simulator) {
         this.gpuMapper = gpuMapper;
+        this.taskMapper = taskMapper;
         this.taskService = taskService;
         this.simulator = simulator;
     }
@@ -47,7 +51,8 @@ public class TaskAssignmentService {
         int updated = gpuMapper.tryMarkBusy(
                 gpu.getId(),
                 GpuStatus.IDLE.getCode(),
-                GpuStatus.BUSY.getCode()
+                GpuStatus.BUSY.getCode(),
+                task.getMinMemoryGb()
         );
         if (updated == 0) {
             throw new BusinessException("GPU_ALREADY_ASSIGNED", "GPU已被其他调度线程占用", 409);
@@ -62,6 +67,11 @@ public class TaskAssignmentService {
 
         LocalDateTime now = LocalDateTime.now();
         task.setEstimatedFinishAt(now.plusNanos(toDelayNanos(estimatedSeconds)));
+        GpuTask timingUpdate = new GpuTask();
+        timingUpdate.setId(task.getId());
+        timingUpdate.setEstimatedSeconds(estimatedSeconds);
+        timingUpdate.setEstimatedFinishAt(task.getEstimatedFinishAt());
+        taskMapper.updateById(timingUpdate);
 
         // 3. QUEUED -> RUNNING
         taskService.transition(task.getId(), TaskStatus.RUNNING, gpu.getId(), null);

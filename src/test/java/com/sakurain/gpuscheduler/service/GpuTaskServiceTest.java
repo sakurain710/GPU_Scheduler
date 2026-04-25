@@ -185,7 +185,7 @@ class GpuTaskServiceTest {
 
         ArgumentCaptor<GpuTask> captor = ArgumentCaptor.forClass(GpuTask.class);
         verify(taskMapper, times(2)).updateById(captor.capture());
-        assertTrue(captor.getAllValues().stream().allMatch(v -> "operator drain".equals(v.getErrorMessage())));
+        assertTrue(captor.getAllValues().stream().allMatch(v -> "operator drain".equals(v.getCancelReason())));
     }
 
     @Test

@@ -132,7 +132,8 @@ class TaskSubmissionToCompletionIT {
         when(gpuMapper.tryMarkBusy(
                 eq(GPU_ID),
                 eq(GpuStatus.IDLE.getCode()),
-                eq(GpuStatus.BUSY.getCode())
+                eq(GpuStatus.BUSY.getCode()),
+                eq(new BigDecimal("24.00"))
         )).thenReturn(1);
 
         // Act — 手动触发一次调度
@@ -154,7 +155,8 @@ class TaskSubmissionToCompletionIT {
         verify(gpuMapper).tryMarkBusy(
                 GPU_ID,
                 GpuStatus.IDLE.getCode(),
-                GpuStatus.BUSY.getCode()
+                GpuStatus.BUSY.getCode(),
+                new BigDecimal("24.00")
         );
 
         // Assert — 任务状态日志（QUEUED→RUNNING）

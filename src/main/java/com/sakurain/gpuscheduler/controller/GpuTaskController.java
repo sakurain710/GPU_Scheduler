@@ -125,9 +125,11 @@ public class GpuTaskController {
 
     @Operation(summary = "取消任务")
     @PostMapping("/{taskId}/cancel")
-    public Result<Void> cancelTask(@PathVariable Long taskId) {
+    public Result<Void> cancelTask(@PathVariable Long taskId,
+                                   @RequestBody(required = false) RejectTaskRequest request) {
         CustomUserDetails currentUser = getCurrentUserDetails();
-        gpuTaskService.cancelTask(taskId, currentUser.getUserId(), currentUser.getRoleCodes());
+        String reason = request != null ? request.getReason() : null;
+        gpuTaskService.cancelTask(taskId, currentUser.getUserId(), currentUser.getRoleCodes(), reason);
         return Result.success();
     }
 

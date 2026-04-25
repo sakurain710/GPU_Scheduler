@@ -108,6 +108,36 @@ public class GpuTask {
     private BigDecimal actualSeconds;
 
     /**
+     * 提交申请理由
+     */
+    @TableField("apply_reason")
+    private String applyReason;
+
+    /**
+     * 审批人ID
+     */
+    @TableField("reviewer_id")
+    private Long reviewerId;
+
+    /**
+     * 审批时间
+     */
+    @TableField("review_at")
+    private LocalDateTime reviewAt;
+
+    /**
+     * 驳回原因
+     */
+    @TableField("reject_reason")
+    private String rejectReason;
+
+    /**
+     * 取消原因
+     */
+    @TableField("cancel_reason")
+    private String cancelReason;
+
+    /**
      * 状态：1=Pending 2=Queued 3=Running 4=Completed 5=Failed 6=Cancelled 7=PendingApproval 8=Rejected
      */
     @TableField("status")

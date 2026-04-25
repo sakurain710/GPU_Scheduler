@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -45,6 +46,7 @@ public class GpuService {
                 .name(request.getName())
                 .manufacturer(request.getManufacturer())
                 .memoryGb(request.getMemoryGb())
+                .allocatedMemoryGb(BigDecimal.ZERO)
                 .computingPowerTflops(request.getComputingPowerTflops())
                 .status(GpuStatus.IDLE.getCode())
                 .remark(request.getRemark())
@@ -184,9 +186,12 @@ public class GpuService {
                 .name(gpu.getName())
                 .manufacturer(gpu.getManufacturer())
                 .memoryGb(gpu.getMemoryGb())
+                .allocatedMemoryGb(gpu.getAllocatedMemoryGb())
                 .computingPowerTflops(gpu.getComputingPowerTflops())
                 .status(gpu.getStatus())
                 .statusLabel(status.getLabel())
+                .lastHeartbeatAt(gpu.getLastHeartbeatAt())
+                .offlineReason(gpu.getOfflineReason())
                 .remark(gpu.getRemark())
                 .createdBy(gpu.getCreatedBy())
                 .createdAt(gpu.getCreatedAt())

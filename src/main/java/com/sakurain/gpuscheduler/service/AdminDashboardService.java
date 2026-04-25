@@ -19,11 +19,13 @@ import com.sakurain.gpuscheduler.dto.dashboard.RedisHealthMetrics;
 import com.sakurain.gpuscheduler.dto.dashboard.SchedulerThreadPoolMetrics;
 import com.sakurain.gpuscheduler.entity.Gpu;
 import com.sakurain.gpuscheduler.entity.GpuTask;
+import com.sakurain.gpuscheduler.entity.TaskDlq;
 import com.sakurain.gpuscheduler.entity.User;
 import com.sakurain.gpuscheduler.enums.GpuStatus;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.mapper.GpuMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
+import com.sakurain.gpuscheduler.mapper.TaskDlqMapper;
 import com.sakurain.gpuscheduler.mapper.UserMapper;
 import com.sakurain.gpuscheduler.scheduler.CircuitBreakerService;
 import com.sakurain.gpuscheduler.scheduler.TaskExecutionSimulator;
@@ -57,7 +59,7 @@ import java.util.stream.Collectors;
 @Service
 public class AdminDashboardService {
 
-    private static final String DLQ_KEY = "gpu:task:dlq";
+    private static final int DLQ_STATUS_PENDING = 1;
     private static final String TREND_CACHE_KEY_PREFIX = "admin:dashboard:queue-trend:";
     private static final List<String> DAY_LABELS = List.of(
             "00:00", "01:00", "02:00", "03:00", "04:00", "05:00",
@@ -69,6 +71,7 @@ public class AdminDashboardService {
 
     private final GpuTaskMapper gpuTaskMapper;
     private final GpuMapper gpuMapper;
+    private final TaskDlqMapper taskDlqMapper;
     private final UserMapper userMapper;
     private final RedisTemplate<String, String> redisTemplate;
     private final CircuitBreakerService circuitBreakerService;
@@ -85,6 +88,7 @@ public class AdminDashboardService {
 
     public AdminDashboardService(GpuTaskMapper gpuTaskMapper,
                                  GpuMapper gpuMapper,
+                                 TaskDlqMapper taskDlqMapper,
                                  UserMapper userMapper,
                                  RedisTemplate<String, String> redisTemplate,
                                  CircuitBreakerService circuitBreakerService,
@@ -93,6 +97,7 @@ public class AdminDashboardService {
                                  ObjectMapper objectMapper) {
         this.gpuTaskMapper = gpuTaskMapper;
         this.gpuMapper = gpuMapper;
+        this.taskDlqMapper = taskDlqMapper;
         this.userMapper = userMapper;
         this.redisTemplate = redisTemplate;
         this.circuitBreakerService = circuitBreakerService;
@@ -139,7 +144,9 @@ public class AdminDashboardService {
         for (Gpu gpu : gpus) {
             BigDecimal totalMemory = safe(gpu.getMemoryGb());
             GpuTask runningTask = runningTaskByGpuId.get(gpu.getId());
-            BigDecimal used = runningTask == null ? BigDecimal.ZERO : safe(runningTask.getMinMemoryGb());
+            BigDecimal used = gpu.getAllocatedMemoryGb() != null
+                    ? safe(gpu.getAllocatedMemoryGb())
+                    : runningTask == null ? BigDecimal.ZERO : safe(runningTask.getMinMemoryGb());
             BigDecimal remaining = totalMemory.subtract(used).max(BigDecimal.ZERO);
             BigDecimal fragmented = Objects.equals(gpu.getStatus(), GpuStatus.BUSY.getCode()) ? remaining : BigDecimal.ZERO;
             BigDecimal free = Objects.equals(gpu.getStatus(), GpuStatus.IDLE.getCode()) ? totalMemory : BigDecimal.ZERO;
@@ -169,15 +176,16 @@ public class AdminDashboardService {
     }
 
     public DlqSummary buildDlqSummary() {
-        Long size = redisTemplate.opsForList().size(DLQ_KEY);
-        List<String> latest = redisTemplate.opsForList().range(DLQ_KEY, 0, 0);
-        ParsedDlqPayload latestPayload = latest == null || latest.isEmpty()
-                ? new ParsedDlqPayload(null, 0L, "", null)
-                : parseDlqPayload(latest.get(0));
+        Long size = taskDlqMapper.selectCount(new LambdaQueryWrapper<TaskDlq>()
+                .eq(TaskDlq::getStatus, DLQ_STATUS_PENDING));
+        TaskDlq latest = taskDlqMapper.selectOne(new LambdaQueryWrapper<TaskDlq>()
+                .eq(TaskDlq::getStatus, DLQ_STATUS_PENDING)
+                .orderByDesc(TaskDlq::getCreatedAt)
+                .last("LIMIT 1"));
 
         return DlqSummary.builder()
                 .size(size == null ? 0L : size)
-                .latestEnteredDlqAt(latestPayload.enteredDlqAt())
+                .latestEnteredDlqAt(latest == null ? null : latest.getCreatedAt())
                 .build();
     }
 
@@ -187,23 +195,26 @@ public class AdminDashboardService {
         long start = (current - 1) * pageSize;
         long end = start + pageSize - 1;
 
-        Long total = redisTemplate.opsForList().size(DLQ_KEY);
-        List<String> rawItems = redisTemplate.opsForList().range(DLQ_KEY, start, end);
-        List<ParsedDlqPayload> payloads = rawItems == null ? List.of() : rawItems.stream().map(this::parseDlqPayload).toList();
-        Map<Long, GpuTask> taskById = loadTasks(payloads);
+        Long total = taskDlqMapper.selectCount(new LambdaQueryWrapper<TaskDlq>()
+                .eq(TaskDlq::getStatus, DLQ_STATUS_PENDING));
+        List<TaskDlq> records = taskDlqMapper.selectList(new LambdaQueryWrapper<TaskDlq>()
+                .eq(TaskDlq::getStatus, DLQ_STATUS_PENDING)
+                .orderByDesc(TaskDlq::getCreatedAt)
+                .last("LIMIT " + start + "," + pageSize));
+        Map<Long, GpuTask> taskById = loadTasksByDlqRecords(records);
         Map<Long, User> userById = loadUsers(taskById.values());
 
-        List<DlqItemResponse> records = payloads.stream()
-                .map(payload -> {
-                    GpuTask task = payload.taskId() == null ? null : taskById.get(payload.taskId());
+        List<DlqItemResponse> items = records.stream()
+                .map(dlq -> {
+                    GpuTask task = dlq.getTaskId() == null ? null : taskById.get(dlq.getTaskId());
                     User user = task == null || task.getUserId() == null ? null : userById.get(task.getUserId());
                     return DlqItemResponse.builder()
-                            .taskId(payload.taskId())
+                            .taskId(dlq.getTaskId())
                             .username(user != null ? user.getUsername() : null)
                             .email(user != null ? user.getEmail() : null)
-                            .retryCount(payload.retryCount())
-                            .failureReason(payload.failureReason())
-                            .enteredDlqAt(payload.enteredDlqAt())
+                            .retryCount(dlq.getRetryCount() == null ? 0L : dlq.getRetryCount())
+                            .failureReason(dlq.getFailureReason())
+                            .enteredDlqAt(dlq.getCreatedAt())
                             .build();
                 })
                 .toList();
@@ -212,7 +223,7 @@ public class AdminDashboardService {
                 .current(current)
                 .size(pageSize)
                 .total(total == null ? 0L : total)
-                .records(records)
+                .records(items)
                 .build();
     }
 
@@ -486,6 +497,19 @@ public class AdminDashboardService {
     private Map<Long, GpuTask> loadTasks(List<ParsedDlqPayload> payloads) {
         List<Long> taskIds = payloads.stream()
                 .map(ParsedDlqPayload::taskId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (taskIds.isEmpty()) {
+            return Map.of();
+        }
+        return gpuTaskMapper.selectBatchIds(taskIds).stream()
+                .collect(Collectors.toMap(GpuTask::getId, task -> task));
+    }
+
+    private Map<Long, GpuTask> loadTasksByDlqRecords(List<TaskDlq> dlqRecords) {
+        List<Long> taskIds = dlqRecords.stream()
+                .map(TaskDlq::getTaskId)
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();

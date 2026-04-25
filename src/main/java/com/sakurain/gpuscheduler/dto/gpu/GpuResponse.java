@@ -30,6 +30,9 @@ public class GpuResponse {
     /** 显存大小（GB） */
     private BigDecimal memoryGb;
 
+    /** 当前已分配显存（GB） */
+    private BigDecimal allocatedMemoryGb;
+
     /** FP32峰值算力（TFLOPS） */
     private BigDecimal computingPowerTflops;
 
@@ -38,6 +41,12 @@ public class GpuResponse {
 
     /** 状态标签 */
     private String statusLabel;
+
+    /** 最近一次心跳时间 */
+    private LocalDateTime lastHeartbeatAt;
+
+    /** 离线原因 */
+    private String offlineReason;
 
     /** 备注 */
     private String remark;

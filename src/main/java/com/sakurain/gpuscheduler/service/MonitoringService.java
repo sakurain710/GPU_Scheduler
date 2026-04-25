@@ -241,7 +241,9 @@ public class MonitoringService {
 
         for (Gpu gpu : allGpus) {
             GpuTask runningTask = taskByGpuId.get(gpu.getId());
-            BigDecimal used = runningTask != null && runningTask.getMinMemoryGb() != null
+            BigDecimal used = gpu.getAllocatedMemoryGb() != null
+                    ? gpu.getAllocatedMemoryGb()
+                    : runningTask != null && runningTask.getMinMemoryGb() != null
                     ? runningTask.getMinMemoryGb()
                     : BigDecimal.ZERO;
             usedMemory.put(gpu.getId(), used);
@@ -254,10 +256,9 @@ public class MonitoringService {
 
             if (gpu.getStatus().equals(GpuStatus.BUSY.getCode())
                     && gpu.getMemoryGb().compareTo(BigDecimal.ZERO) > 0
-                    && runningTask != null
-                    && runningTask.getMinMemoryGb() != null) {
+                    && used.compareTo(BigDecimal.ZERO) > 0) {
                 BigDecimal ratio = BigDecimal.ONE.subtract(
-                        runningTask.getMinMemoryGb().divide(gpu.getMemoryGb(), 4, RoundingMode.HALF_UP));
+                        used.divide(gpu.getMemoryGb(), 4, RoundingMode.HALF_UP));
                 fragmentation.put(gpu.getId(), ratio.max(BigDecimal.ZERO));
             }
 

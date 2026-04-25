@@ -6,11 +6,13 @@ import com.sakurain.gpuscheduler.dto.dashboard.MemoryFragmentationResponse;
 import com.sakurain.gpuscheduler.dto.dashboard.QueueWaitTrendResponse;
 import com.sakurain.gpuscheduler.entity.Gpu;
 import com.sakurain.gpuscheduler.entity.GpuTask;
+import com.sakurain.gpuscheduler.entity.TaskDlq;
 import com.sakurain.gpuscheduler.entity.User;
 import com.sakurain.gpuscheduler.enums.GpuStatus;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.mapper.GpuMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
+import com.sakurain.gpuscheduler.mapper.TaskDlqMapper;
 import com.sakurain.gpuscheduler.mapper.UserMapper;
 import com.sakurain.gpuscheduler.scheduler.CircuitBreakerService;
 import com.sakurain.gpuscheduler.scheduler.TaskExecutionSimulator;
@@ -46,6 +48,7 @@ class AdminDashboardServiceTest {
 
     @Mock private GpuTaskMapper gpuTaskMapper;
     @Mock private GpuMapper gpuMapper;
+    @Mock private TaskDlqMapper taskDlqMapper;
     @Mock private UserMapper userMapper;
     @Mock private RedisTemplate<String, String> redisTemplate;
     @Mock private CircuitBreakerService circuitBreakerService;
@@ -63,6 +66,7 @@ class AdminDashboardServiceTest {
         service = new AdminDashboardService(
                 gpuTaskMapper,
                 gpuMapper,
+                taskDlqMapper,
                 userMapper,
                 redisTemplate,
                 circuitBreakerService,
@@ -97,9 +101,16 @@ class AdminDashboardServiceTest {
 
     @Test
     void listDlq_shouldReturnStructuredItems() {
-        when(listOperations.size("gpu:task:dlq")).thenReturn(1L);
-        when(listOperations.range("gpu:task:dlq", 0, 19))
-                .thenReturn(List.of("{\"taskId\":12,\"attempt\":3,\"reason\":\"GPU error\",\"time\":\"2026-04-12T12:00:00\"}"));
+        when(taskDlqMapper.selectCount(any())).thenReturn(1L);
+        when(taskDlqMapper.selectList(any()))
+                .thenReturn(List.of(TaskDlq.builder()
+                        .id(1L)
+                        .taskId(12L)
+                        .retryCount(3)
+                        .failureReason("GPU error")
+                        .createdAt(LocalDateTime.of(2026, 4, 12, 12, 0))
+                        .status(1)
+                        .build()));
         when(gpuTaskMapper.selectBatchIds(List.of(12L)))
                 .thenReturn(List.of(GpuTask.builder().id(12L).userId(100L).build()));
         when(userMapper.selectBatchIds(List.of(100L)))

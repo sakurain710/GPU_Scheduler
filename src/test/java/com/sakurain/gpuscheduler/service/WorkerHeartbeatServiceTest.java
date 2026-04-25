@@ -5,6 +5,7 @@ import com.sakurain.gpuscheduler.config.WorkerHeartbeatPolicyConfig;
 import com.sakurain.gpuscheduler.entity.Gpu;
 import com.sakurain.gpuscheduler.entity.GpuTask;
 import com.sakurain.gpuscheduler.enums.GpuStatus;
+import com.sakurain.gpuscheduler.enums.TaskLogEvent;
 import com.sakurain.gpuscheduler.enums.TaskStatus;
 import com.sakurain.gpuscheduler.mapper.GpuMapper;
 import com.sakurain.gpuscheduler.mapper.GpuTaskMapper;
@@ -91,7 +92,9 @@ class WorkerHeartbeatServiceTest {
         verify(gpuTaskMapper).updateById(taskCaptor.capture());
         assertThat(taskCaptor.getValue().getId()).isEqualTo(99L);
         assertThat(taskCaptor.getValue().getErrorMessage()).contains("Worker heartbeat stale");
-        verify(gpuTaskService).transition(99L, TaskStatus.QUEUED, null, null);
-        verify(gpuMapper).tryMarkOfflineFromBusy(2L, GpuStatus.BUSY.getCode(), GpuStatus.OFFLINE.getCode());
+        verify(gpuTaskService).transition(eq(99L), eq(TaskStatus.QUEUED), isNull(), isNull(),
+                eq(TaskLogEvent.HEARTBEAT_LOST), contains("Worker heartbeat stale"));
+        verify(gpuMapper).tryMarkOfflineFromBusy(eq(2L), eq(GpuStatus.BUSY.getCode()),
+                eq(GpuStatus.OFFLINE.getCode()), contains("Worker heartbeat stale"));
     }
 }

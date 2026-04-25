@@ -1,7 +1,9 @@
 package com.sakurain.gpuscheduler.scheduler;
 
+import com.sakurain.gpuscheduler.integration.RedisAvailableCondition;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -12,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Redis优先队列集成测试 — 需要Redis运行
  */
 @SpringBootTest
+@ExtendWith(RedisAvailableCondition.class)
 class TaskPriorityQueueTest {
 
     @Autowired
