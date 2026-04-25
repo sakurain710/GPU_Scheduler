@@ -35,13 +35,12 @@ public class GpuAllocator {
      * <p>
      * 策略：
      * 1. 过滤：只考虑IDLE状态且显存 >= minMemoryGb的GPU
-     * 2. 排序：按显存升序（最小的满足需求的GPU优先）
-     * 3. 选择：返回第一个（显存最小的）
+     * 2. 排序：按显存浪费率升序，浪费率相同时按显存升序
+     * 3. 选择：返回浪费率最低的GPU
      *
      * @param task 待分配的任务
      * @return 分配的GPU，如果没有可用GPU则返回Optional.empty()
-     * Best-Fit by minimum VRAM waste ratio:
-     * waste = (gpu.memory - task.minMemory) / gpu. Memory
+     * Best-Fit waste ratio = (gpu.memory - task.minMemory) / gpu.memory
      */
     public Optional<Gpu> allocate(GpuTask task) {
         if (task.getMinMemoryGb() == null) {
@@ -65,7 +64,7 @@ public class GpuAllocator {
         Comparator<Gpu> byWasteThenMemory = Comparator
                 .comparing((Gpu g) -> calculateWasteRatio(task.getMinMemoryGb(), g.getMemoryGb()))
                 .thenComparing(Gpu::getMemoryGb);
-        // BestFit: 选择显存最小的GPU（已按memory_gb升序排序）
+        // BestFit: 选择显存浪费率最低的GPU
         Gpu selected = candidates.stream().min(byWasteThenMemory).orElse(null);
 
         BigDecimal wasteRatio = calculateWasteRatio(task.getMinMemoryGb(), selected.getMemoryGb());

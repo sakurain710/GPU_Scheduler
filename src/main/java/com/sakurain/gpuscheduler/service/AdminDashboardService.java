@@ -3,7 +3,6 @@ package com.sakurain.gpuscheduler.service;
 import com.alibaba.druid.pool.DruidDataSource;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sakurain.gpuscheduler.dto.dashboard.AdminDashboardInitialResponse;
 import com.sakurain.gpuscheduler.dto.dashboard.AdminDashboardOverviewResponse;
@@ -38,6 +37,7 @@ import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
@@ -451,25 +451,36 @@ public class AdminDashboardService {
             return 0L;
         }
         if (source instanceof DruidDataSource druidDataSource) {
-            Object direct = invokeNoArg(druidDataSource, "getExecuteCount");
-            if (direct instanceof Number number) {
-                return number.longValue();
+            Long direct = invokeNoArgNumber(druidDataSource, "getExecuteCount");
+            if (direct != null) {
+                return direct;
             }
-            Object stat = invokeNoArg(druidDataSource, "getDataSourceStat");
+            Object stat = invokeNoArgObject(druidDataSource, "getDataSourceStat");
             if (stat != null) {
-                Object nested = invokeNoArg(stat, "getExecuteCount");
-                if (nested instanceof Number nestedNumber) {
-                    return nestedNumber.longValue();
+                Long nested = invokeNoArgNumber(stat, "getExecuteCount");
+                if (nested != null) {
+                    return nested;
                 }
             }
         }
-        Object reflected = invokeNoArg(source, "getExecuteCount");
-        return reflected instanceof Number number ? number.longValue() : 0L;
+        Long reflected = invokeNoArgNumber(source, "getExecuteCount");
+        return reflected == null ? 0L : reflected;
     }
 
-    private Object invokeNoArg(Object target, String methodName) {
+    private Long invokeNoArgNumber(Object target, String methodName) {
+        Object value = invokeNoArgObject(target, methodName);
+        return value instanceof Number number ? number.longValue() : null;
+    }
+
+    private Object invokeNoArgObject(Object target, String methodName) {
+        if (target == null) {
+            return null;
+        }
         try {
             Method method = target.getClass().getMethod(methodName);
+            if (method.getParameterCount() != 0 || !Modifier.isPublic(method.getModifiers())) {
+                return null;
+            }
             return method.invoke(target);
         } catch (Exception ex) {
             return null;
@@ -492,19 +503,6 @@ public class AdminDashboardService {
         } finally {
             connection.close();
         }
-    }
-
-    private Map<Long, GpuTask> loadTasks(List<ParsedDlqPayload> payloads) {
-        List<Long> taskIds = payloads.stream()
-                .map(ParsedDlqPayload::taskId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
-        if (taskIds.isEmpty()) {
-            return Map.of();
-        }
-        return gpuTaskMapper.selectBatchIds(taskIds).stream()
-                .collect(Collectors.toMap(GpuTask::getId, task -> task));
     }
 
     private Map<Long, GpuTask> loadTasksByDlqRecords(List<TaskDlq> dlqRecords) {
@@ -531,31 +529,6 @@ public class AdminDashboardService {
         }
         return userMapper.selectBatchIds(userIds).stream()
                 .collect(Collectors.toMap(User::getId, user -> user));
-    }
-
-    private ParsedDlqPayload parseDlqPayload(String payload) {
-        if (payload == null || payload.isBlank()) {
-            return new ParsedDlqPayload(null, 0L, "", null);
-        }
-        try {
-            JsonNode root = objectMapper.readTree(payload);
-            Long taskId = root.has("taskId") && root.get("taskId").canConvertToLong()
-                    ? root.get("taskId").longValue() : null;
-            long attempt = root.has("attempt") && root.get("attempt").canConvertToLong()
-                    ? root.get("attempt").longValue() : 0L;
-            String reason = root.has("reason") ? root.get("reason").asText("") : "";
-            LocalDateTime time = null;
-            if (root.has("time") && !root.get("time").isNull()) {
-                String raw = root.get("time").asText();
-                if (!raw.isBlank()) {
-                    time = LocalDateTime.parse(raw);
-                }
-            }
-            return new ParsedDlqPayload(taskId, attempt, reason, time);
-        } catch (Exception ex) {
-            log.warn("Failed to parse DLQ payload: {}", ex.getMessage());
-            return new ParsedDlqPayload(null, 0L, payload, null);
-        }
     }
 
     private LocalDateTime resolveReleaseAt(GpuTask task) {
@@ -606,9 +579,6 @@ public class AdminDashboardService {
 
     private String normalizeMode(String mode) {
         return "WEEK".equalsIgnoreCase(mode) ? "WEEK" : "DAY";
-    }
-
-    private record ParsedDlqPayload(Long taskId, long retryCount, String failureReason, LocalDateTime enteredDlqAt) {
     }
 
     private static final class BucketAccumulator {

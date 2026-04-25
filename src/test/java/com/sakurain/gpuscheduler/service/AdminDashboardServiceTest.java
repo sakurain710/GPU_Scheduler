@@ -1,6 +1,7 @@
 package com.sakurain.gpuscheduler.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sakurain.gpuscheduler.dto.dashboard.AdminDashboardOverviewResponse;
 import com.sakurain.gpuscheduler.dto.dashboard.DlqListResponse;
 import com.sakurain.gpuscheduler.dto.dashboard.MemoryFragmentationResponse;
 import com.sakurain.gpuscheduler.dto.dashboard.QueueWaitTrendResponse;
@@ -30,10 +31,14 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
+import java.io.PrintWriter;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Properties;
+import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -156,5 +161,107 @@ class AdminDashboardServiceTest {
         assertThat(response.getPoints()).hasSize(24);
         assertThat(response.getPoints().get(1).getActualAgingAvgWaitSeconds()).isEqualTo(600.0);
         assertThat(response.getPoints().get(1).getSimulatedFifoAvgWaitSeconds()).isEqualTo(0.0);
+    }
+
+    @Test
+    void buildOverview_shouldReadNumericExecuteCountFromDatasource() {
+        service = createService(new CountingDataSource());
+        when(gpuMapper.selectCount(null)).thenReturn(1L);
+        when(circuitBreakerService.getState()).thenReturn(CircuitBreakerService.State.CLOSED);
+
+        AdminDashboardOverviewResponse first = service.buildOverview();
+        AdminDashboardOverviewResponse second = service.buildOverview();
+
+        assertThat(first.getMysql().getStatus()).isEqualTo("UP");
+        assertThat(first.getMysql().getQps()).isEqualTo(0.0);
+        assertThat(second.getMysql().getStatus()).isEqualTo("UP");
+        assertThat(second.getMysql().getQps()).isGreaterThanOrEqualTo(0.0);
+    }
+
+    @Test
+    void buildOverview_shouldFallbackWhenExecuteCountSignatureDoesNotMatch() {
+        service = createService(new InvalidExecuteCountDataSource());
+        when(gpuMapper.selectCount(null)).thenReturn(1L);
+        when(circuitBreakerService.getState()).thenReturn(CircuitBreakerService.State.CLOSED);
+
+        AdminDashboardOverviewResponse response = service.buildOverview();
+
+        assertThat(response.getMysql().getStatus()).isEqualTo("UP");
+        assertThat(response.getMysql().getQps()).isEqualTo(0.0);
+    }
+
+    private AdminDashboardService createService(DataSource customDataSource) {
+        AdminDashboardService customService = new AdminDashboardService(
+                gpuTaskMapper,
+                gpuMapper,
+                taskDlqMapper,
+                userMapper,
+                redisTemplate,
+                circuitBreakerService,
+                taskExecutionSimulator,
+                customDataSource,
+                new ObjectMapper().findAndRegisterModules()
+        );
+        ReflectionTestUtils.setField(customService, "trendCacheTtlSeconds", 300L);
+        return customService;
+    }
+
+    public static class CountingDataSource extends StubDataSource {
+        private long executeCount;
+
+        public long getExecuteCount() {
+            return executeCount++;
+        }
+    }
+
+    public static class InvalidExecuteCountDataSource extends StubDataSource {
+        public long getExecuteCount(String ignored) {
+            return 1L;
+        }
+    }
+
+    public abstract static class StubDataSource implements DataSource {
+        @Override
+        public Connection getConnection() throws SQLException {
+            throw new SQLException("not implemented");
+        }
+
+        @Override
+        public Connection getConnection(String username, String password) throws SQLException {
+            throw new SQLException("not implemented");
+        }
+
+        @Override
+        public PrintWriter getLogWriter() {
+            return null;
+        }
+
+        @Override
+        public void setLogWriter(PrintWriter out) {
+        }
+
+        @Override
+        public void setLoginTimeout(int seconds) {
+        }
+
+        @Override
+        public int getLoginTimeout() {
+            return 0;
+        }
+
+        @Override
+        public Logger getParentLogger() {
+            return Logger.getGlobal();
+        }
+
+        @Override
+        public <T> T unwrap(Class<T> iface) throws SQLException {
+            throw new SQLException("not implemented");
+        }
+
+        @Override
+        public boolean isWrapperFor(Class<?> iface) {
+            return false;
+        }
     }
 }
