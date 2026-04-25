@@ -57,6 +57,9 @@ public class TaskNotificationService {
     @Value("${notification.webhook.retry-batch-size:50}")
     private int webhookRetryBatchSize;
 
+    @Value("${notification.webhook.retry-queue-max-size:1000}")
+    private int webhookRetryQueueMaxSize;
+
     public TaskNotificationService(SimpMessagingTemplate messagingTemplate,
                                    RedisTemplate<String, String> redisTemplate,
                                    ObjectMapper objectMapper,
@@ -175,6 +178,8 @@ public class TaskNotificationService {
         try {
             String body = objectMapper.writeValueAsString(new RetryEnvelope(payload, attempt));
             redisTemplate.opsForList().leftPush(WEBHOOK_RETRY_QUEUE, body);
+            long maxSize = Math.max(1L, webhookRetryQueueMaxSize);
+            redisTemplate.opsForList().trim(WEBHOOK_RETRY_QUEUE, 0, maxSize - 1);
         } catch (JsonProcessingException e) {
             log.warn("Webhook重试入队失败: {}", e.getMessage());
         }

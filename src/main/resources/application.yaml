@@ -132,3 +132,4 @@ notification:
     retry-max-attempts: 3
     retry-interval-ms: 10000
     retry-batch-size: 50
+    retry-queue-max-size: 1000
