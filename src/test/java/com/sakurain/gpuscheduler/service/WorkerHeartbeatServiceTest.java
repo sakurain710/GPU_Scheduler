@@ -39,6 +39,8 @@ class WorkerHeartbeatServiceTest {
     private GpuTaskMapper gpuTaskMapper;
     @Mock
     private GpuTaskService gpuTaskService;
+    @Mock
+    private TaskRetryDlqService taskRetryDlqService;
 
     private WorkerHeartbeatService service;
     private WorkerHeartbeatPolicyConfig policy;
@@ -52,7 +54,7 @@ class WorkerHeartbeatServiceTest {
         lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
 
         service = new WorkerHeartbeatService(
-                redisTemplate, policy, gpuMapper, gpuTaskMapper, gpuTaskService
+                redisTemplate, policy, gpuMapper, gpuTaskMapper, gpuTaskService, taskRetryDlqService
         );
     }
 
@@ -75,7 +77,7 @@ class WorkerHeartbeatServiceTest {
     }
 
     @Test
-    void scanAndRecoverStaleWorkers_shouldRequeueRunningTaskAndMarkOffline() {
+    void scanAndRecoverStaleWorkers_shouldFailRunningTaskRetryAndMarkOffline() {
         Gpu busyGpu = Gpu.builder().id(2L).status(GpuStatus.BUSY.getCode()).build();
         GpuTask runningTask = GpuTask.builder()
                 .id(99L)
@@ -92,8 +94,32 @@ class WorkerHeartbeatServiceTest {
         verify(gpuTaskMapper).updateById(taskCaptor.capture());
         assertThat(taskCaptor.getValue().getId()).isEqualTo(99L);
         assertThat(taskCaptor.getValue().getErrorMessage()).contains("Worker heartbeat stale");
-        verify(gpuTaskService).transition(eq(99L), eq(TaskStatus.QUEUED), isNull(), isNull(),
+        verify(gpuTaskService).transition(eq(99L), eq(TaskStatus.FAILED), eq(2L), isNull(),
                 eq(TaskLogEvent.HEARTBEAT_LOST), contains("Worker heartbeat stale"));
+        verify(taskRetryDlqService).onTaskFailed(eq(99L), contains("Worker heartbeat stale"));
+        verify(gpuMapper).tryMarkOfflineFromBusy(eq(2L), eq(GpuStatus.BUSY.getCode()),
+                eq(GpuStatus.OFFLINE.getCode()), contains("Worker heartbeat stale"));
+    }
+
+    @Test
+    void scanAndRecoverStaleWorkers_shouldNotRetryWhenTransitionFails() {
+        Gpu busyGpu = Gpu.builder().id(2L).status(GpuStatus.BUSY.getCode()).build();
+        GpuTask runningTask = GpuTask.builder()
+                .id(99L)
+                .gpuId(2L)
+                .status(TaskStatus.RUNNING.getCode())
+                .build();
+        when(gpuMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(busyGpu));
+        when(valueOperations.get(startsWith("gpu:worker:heartbeat:2"))).thenReturn(null);
+        when(gpuTaskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(runningTask);
+        doThrow(new RuntimeException("transition failed"))
+                .when(gpuTaskService)
+                .transition(eq(99L), eq(TaskStatus.FAILED), eq(2L), isNull(),
+                        eq(TaskLogEvent.HEARTBEAT_LOST), contains("Worker heartbeat stale"));
+
+        service.scanAndRecoverStaleWorkers();
+
+        verify(taskRetryDlqService, never()).onTaskFailed(anyLong(), anyString());
         verify(gpuMapper).tryMarkOfflineFromBusy(eq(2L), eq(GpuStatus.BUSY.getCode()),
                 eq(GpuStatus.OFFLINE.getCode()), contains("Worker heartbeat stale"));
     }

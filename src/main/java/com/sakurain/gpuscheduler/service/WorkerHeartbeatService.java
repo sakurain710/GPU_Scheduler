@@ -33,17 +33,20 @@ public class WorkerHeartbeatService {
     private final GpuMapper gpuMapper;
     private final GpuTaskMapper gpuTaskMapper;
     private final GpuTaskService gpuTaskService;
+    private final TaskRetryDlqService taskRetryDlqService;
 
     public WorkerHeartbeatService(RedisTemplate<String, String> redisTemplate,
                                   WorkerHeartbeatPolicyConfig policy,
                                   GpuMapper gpuMapper,
                                   GpuTaskMapper gpuTaskMapper,
-                                  GpuTaskService gpuTaskService) {
+                                  GpuTaskService gpuTaskService,
+                                  TaskRetryDlqService taskRetryDlqService) {
         this.redisTemplate = redisTemplate;
         this.policy = policy;
         this.gpuMapper = gpuMapper;
         this.gpuTaskMapper = gpuTaskMapper;
         this.gpuTaskService = gpuTaskService;
+        this.taskRetryDlqService = taskRetryDlqService;
     }
 
     public void beat(Long gpuId) {
@@ -116,8 +119,9 @@ public class WorkerHeartbeatService {
                 update.setId(runningTask.getId());
                 update.setErrorMessage(reason);
                 gpuTaskMapper.updateById(update);
-                gpuTaskService.transition(runningTask.getId(), TaskStatus.QUEUED, null, null,
+                gpuTaskService.transition(runningTask.getId(), TaskStatus.FAILED, runningTask.getGpuId(), null,
                         TaskLogEvent.HEARTBEAT_LOST, reason);
+                taskRetryDlqService.onTaskFailed(runningTask.getId(), reason);
             } catch (Exception ex) {
                 log.warn("stale worker recovery task transition failed: gpuId={}, taskId={}, err={}",
                         gpuId, runningTask.getId(), ex.getMessage());

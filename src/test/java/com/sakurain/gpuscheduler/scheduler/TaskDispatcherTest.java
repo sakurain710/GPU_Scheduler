@@ -10,9 +10,11 @@ import com.sakurain.gpuscheduler.util.RedisLockService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -20,6 +22,7 @@ import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -57,8 +60,11 @@ class TaskDispatcherTest {
     @Mock
     private TaskPreemptionService taskPreemptionService;
 
-    @InjectMocks
     private TaskDispatcher dispatcher;
+    @Mock
+    private RedisTemplate<String, String> redisTemplate;
+    @Mock
+    private ValueOperations<String, String> valueOperations;
 
     private GpuTask queuedTask;
     private Gpu idleGpu;
@@ -68,6 +74,19 @@ class TaskDispatcherTest {
     @BeforeEach
     void setUp() {
         lenient().when(lockService.tryLock(anyString(), anyString(), anyLong(), any())).thenReturn(true);
+        lenient().when(redisTemplate.execute(any(DefaultRedisScript.class), anyList())).thenReturn(0L);
+        lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+
+        dispatcher = new TaskDispatcher(
+                priorityQueue,
+                gpuAllocator,
+                taskMapper,
+                lockService,
+                assignmentService,
+                agingScheduler,
+                taskPreemptionService,
+                redisTemplate
+        );
         ReflectionTestUtils.setField(dispatcher, "scheduledJobsEnabled", true);
 
         queuedTask = GpuTask.builder()
@@ -232,7 +251,12 @@ class TaskDispatcherTest {
     }
 
     @Test
-    void testDispatch_ExponentialBackoff_TriggersAfterMaxFailures() {
+    void testDispatch_BackoffStateIsSharedInRedis() {
+        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList()))
+                .thenReturn(0L, 0L, 0L, 0L, 0L, 1L);
+        when(valueOperations.increment("gpu:dispatcher:backoff:consecutive-failures"))
+                .thenReturn(1L, 2L, 3L, 4L, 5L);
+        when(valueOperations.get("gpu:dispatcher:backoff:current-rounds")).thenReturn(null);
         when(priorityQueue.dequeue()).thenReturn(100L);
         when(taskMapper.selectById(100L)).thenReturn(queuedTask);
         when(gpuAllocator.allocate(queuedTask)).thenReturn(Optional.empty());
@@ -242,9 +266,39 @@ class TaskDispatcherTest {
         for (int i = 0; i < MAX_CONSECUTIVE_FAILURES; i++) {
             dispatcher.dispatchOnce();
         }
-
         dispatcher.dispatchOnce();
 
         verify(priorityQueue, times(MAX_CONSECUTIVE_FAILURES)).dequeue();
+        verify(valueOperations).set("gpu:dispatcher:backoff:current-rounds", "2");
+        verify(valueOperations).set("gpu:dispatcher:backoff:remaining-rounds", "2");
+    }
+
+    @Test
+    void testDispatch_PreemptionSuccessRetriesAllocationInSameCycle() {
+        when(priorityQueue.dequeue()).thenReturn(100L, 100L, null);
+        when(taskMapper.selectById(100L)).thenReturn(queuedTask);
+        when(gpuAllocator.allocate(queuedTask)).thenReturn(Optional.empty(), Optional.of(idleGpu));
+        when(taskPreemptionService.tryPreemptFor(queuedTask)).thenReturn(true);
+        when(agingScheduler.calculateEffectivePriority(queuedTask)).thenReturn(5.0);
+
+        dispatcher.dispatchOnce();
+
+        verify(taskPreemptionService).tryPreemptFor(queuedTask);
+        verify(priorityQueue).enqueue(eq(100L), anyDouble());
+        verify(priorityQueue, times(3)).dequeue();
+        verify(assignmentService).assign(queuedTask, idleGpu);
+    }
+
+    @Test
+    void testDispatch_SuccessfulAllocationResetsRedisBackoff() {
+        when(priorityQueue.dequeue()).thenReturn(100L, (Long) null);
+        when(taskMapper.selectById(100L)).thenReturn(queuedTask);
+        when(gpuAllocator.allocate(queuedTask)).thenReturn(Optional.of(idleGpu));
+
+        dispatcher.dispatchOnce();
+
+        verify(redisTemplate).delete("gpu:dispatcher:backoff:consecutive-failures");
+        verify(redisTemplate).delete("gpu:dispatcher:backoff:remaining-rounds");
+        verify(valueOperations).set("gpu:dispatcher:backoff:current-rounds", "1");
     }
 }

@@ -8,9 +8,12 @@ import com.sakurain.gpuscheduler.service.TaskPreemptionService;
 import com.sakurain.gpuscheduler.util.RedisLockService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.Collections;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -23,6 +26,16 @@ import java.util.concurrent.TimeUnit;
 public class TaskDispatcher {
 
     private static final String LOCK_KEY = "dispatcher:lock";
+    private static final String BACKOFF_FAILURES_KEY = "gpu:dispatcher:backoff:consecutive-failures";
+    private static final String BACKOFF_REMAINING_KEY = "gpu:dispatcher:backoff:remaining-rounds";
+    private static final String BACKOFF_CURRENT_KEY = "gpu:dispatcher:backoff:current-rounds";
+    private static final String CONSUME_BACKOFF_SCRIPT =
+            "local remaining = tonumber(redis.call('get', KEYS[1]) or '0') " +
+            "if remaining > 0 then " +
+            "  redis.call('decr', KEYS[1]) " +
+            "  return 1 " +
+            "end " +
+            "return 0";
     private static final int MAX_CONSECUTIVE_FAILURES = 5;
     private static final int INITIAL_BACKOFF_ROUNDS = 1;
     private static final int MAX_BACKOFF_ROUNDS = 32;
@@ -34,10 +47,9 @@ public class TaskDispatcher {
     private final TaskAssignmentService assignmentService;
     private final TaskAgingScheduler agingScheduler;
     private final TaskPreemptionService taskPreemptionService;
+    private final RedisTemplate<String, String> redisTemplate;
+    private final DefaultRedisScript<Long> consumeBackoffScript;
 
-    private int consecutiveFailures = 0;
-    private int backoffRoundsRemaining = 0;
-    private int currentBackoffRounds = INITIAL_BACKOFF_ROUNDS;
     private volatile boolean paused = false;
     @Value("${scheduler.scheduled-jobs-enabled:true}")
     private boolean scheduledJobsEnabled;
@@ -48,7 +60,8 @@ public class TaskDispatcher {
                           RedisLockService lockService,
                           TaskAssignmentService assignmentService,
                           TaskAgingScheduler agingScheduler,
-                          TaskPreemptionService taskPreemptionService) {
+                          TaskPreemptionService taskPreemptionService,
+                          RedisTemplate<String, String> redisTemplate) {
         this.priorityQueue = priorityQueue;
         this.gpuAllocator = gpuAllocator;
         this.taskMapper = taskMapper;
@@ -56,6 +69,8 @@ public class TaskDispatcher {
         this.assignmentService = assignmentService;
         this.agingScheduler = agingScheduler;
         this.taskPreemptionService = taskPreemptionService;
+        this.redisTemplate = redisTemplate;
+        this.consumeBackoffScript = new DefaultRedisScript<>(CONSUME_BACKOFF_SCRIPT, Long.class);
     }
 
     @Scheduled(fixedDelay = 5000, initialDelay = 10000)
@@ -63,8 +78,7 @@ public class TaskDispatcher {
         if (!scheduledJobsEnabled || paused) {
             return;
         }
-        if (backoffRoundsRemaining > 0) {
-            backoffRoundsRemaining--;
+        if (consumeBackoffRound()) {
             return;
         }
 
@@ -91,16 +105,16 @@ public class TaskDispatcher {
                     requeueWithEffectivePriority(task);
                     if (!preempted) {
                         onFailure();
+                        break;
                     } else {
-                        consecutiveFailures = 0;
+                        resetBackoff();
+                        continue;
                     }
-                    break;
                 }
 
                 try {
                     assignmentService.assign(task, gpuOpt.get());
-                    consecutiveFailures = 0;
-                    currentBackoffRounds = INITIAL_BACKOFF_ROUNDS;
+                    resetBackoff();
                 } catch (Exception e) {
                     log.error("分配GPU失败: taskId={}, gpuId={}", taskId, gpuOpt.get().getId(), e);
                     requeueWithEffectivePriority(task);
@@ -143,11 +157,37 @@ public class TaskDispatcher {
     }
 
     private void onFailure() {
-        consecutiveFailures++;
-        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-            currentBackoffRounds = Math.min(currentBackoffRounds * 2, MAX_BACKOFF_ROUNDS);
-            backoffRoundsRemaining = currentBackoffRounds;
-            consecutiveFailures = 0;
+        Long failures = redisTemplate.opsForValue().increment(BACKOFF_FAILURES_KEY);
+        long currentFailures = failures == null ? 1L : failures;
+        if (currentFailures >= MAX_CONSECUTIVE_FAILURES) {
+            int currentRounds = readInt(BACKOFF_CURRENT_KEY, INITIAL_BACKOFF_ROUNDS);
+            int nextRounds = Math.min(currentRounds * 2, MAX_BACKOFF_ROUNDS);
+            redisTemplate.opsForValue().set(BACKOFF_CURRENT_KEY, Integer.toString(nextRounds));
+            redisTemplate.opsForValue().set(BACKOFF_REMAINING_KEY, Integer.toString(nextRounds));
+            redisTemplate.delete(BACKOFF_FAILURES_KEY);
+        }
+    }
+
+    private boolean consumeBackoffRound() {
+        Long consumed = redisTemplate.execute(consumeBackoffScript, Collections.singletonList(BACKOFF_REMAINING_KEY));
+        return consumed != null && consumed > 0;
+    }
+
+    private void resetBackoff() {
+        redisTemplate.delete(BACKOFF_FAILURES_KEY);
+        redisTemplate.delete(BACKOFF_REMAINING_KEY);
+        redisTemplate.opsForValue().set(BACKOFF_CURRENT_KEY, Integer.toString(INITIAL_BACKOFF_ROUNDS));
+    }
+
+    private int readInt(String key, int defaultValue) {
+        String raw = redisTemplate.opsForValue().get(key);
+        if (raw == null || raw.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(raw);
+        } catch (NumberFormatException ex) {
+            return defaultValue;
         }
     }
 }
